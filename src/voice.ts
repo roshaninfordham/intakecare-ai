@@ -12,9 +12,9 @@ const LANG_TAGS: Record<string, string> = {
   pt: "pt-BR",
 };
 
-// Amelia (warm conversational) on flash v2.5 — speed 1.0, lower stability for
-// natural expressiveness, per Twilio's voiceId-model-speed_stability_similarity syntax
-const ELEVENLABS_VOICE = "ZF6FPAbjXT4488VcRRnw-flash_v2_5-1.0_0.5_0.75";
+// Jessica — natural American English conversational female, flash v2.5,
+// lower stability for expressiveness (voiceId-model-speed_stability_similarity)
+const ELEVENLABS_VOICE = "cgSgspJ2msm6clMCkdW9-flash_v2_5-1.0_0.5_0.75";
 
 function greetingText(env: Env, patientName?: string | null): string {
   if (patientName) {
@@ -99,6 +99,7 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
   let currentLang = "en-US";
   let docPollTimer: ReturnType<typeof setInterval> | null = null;
   let processing = false;
+  let pendingPrompt: string | null = null;
 
   const speak = (text: string, langCode?: string) => {
     const lang = langCode && Object.values(LANG_TAGS).includes(langCode) ? langCode : currentLang;
@@ -173,13 +174,22 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
       }
 
       if (msg.type === "prompt" && msg.voicePrompt) {
-        if (processing) return;
+        if (processing) {
+          // caller kept talking while we were thinking — queue it, never drop it
+          pendingPrompt = pendingPrompt ? `${pendingPrompt} ${msg.voicePrompt}` : msg.voicePrompt;
+          return;
+        }
         processing = true;
         try {
           await runTurn(msg.voicePrompt);
+          while (pendingPrompt) {
+            const next = pendingPrompt;
+            pendingPrompt = null;
+            await runTurn(next);
+          }
         } catch (e) {
           console.error("relay turn error:", e);
-          speak("Sorry, I missed that — could you say it once more?");
+          speak("Sorry, go ahead — I'm listening.");
         } finally {
           processing = false;
         }
