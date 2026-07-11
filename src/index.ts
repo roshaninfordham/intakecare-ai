@@ -57,9 +57,11 @@ async function processInbound(
     const session = await getOrCreateSession(env, phone, channel);
     let userText = body;
     let kind = "text";
+    let media: { url: string; type: string } | undefined;
 
     if (mediaUrl) {
       const { data, contentType } = await fetchTwilioMedia(env, mediaUrl);
+      media = { url: mediaUrl, type: contentType };
       if (mediaType.startsWith("audio") || contentType.startsWith("audio")) {
         kind = "audio";
         userText = await transcribeAudio(env, data, contentType);
@@ -74,7 +76,7 @@ async function processInbound(
         // the call's doc-watcher acknowledges it out loud — no dueling agents
         if (session.awaiting_doc === 1) {
           mergeExtracted(session.fields, ex.extracted);
-          await addMessage(env, phone, "user", channel, kind, userText);
+          await addMessage(env, phone, "user", channel, kind, userText, media.url, media.type);
           await saveSession(env, session);
           await logEvent(env, phone, "media", `Received ${kind} → ${ex.summary}`);
           return ["✓ Got it — I've added that to the record. Continuing on the call…"];
@@ -95,7 +97,7 @@ async function processInbound(
       await env.DB.prepare("DELETE FROM events WHERE session_id = ? AND kind = 'outbox'").bind(phone).run();
     }
 
-    const result = await handleTurn(env, session, userText, channel, kind);
+    const result = await handleTurn(env, session, userText, channel, kind, media);
     const replies = [...(outbox as any[]).map((o) => String(o.detail)), result.reply];
 
     if (result.decision.request_call) {
@@ -216,7 +218,7 @@ app.get("/api/sessions/:id", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(id).first();
   if (!row) return c.json({ error: "not found" }, 404);
   const { results: msgs } = await c.env.DB.prepare(
-    "SELECT role, channel, kind, content, created_at FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 200"
+    "SELECT id, role, channel, kind, content, media_url, media_type, created_at FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 200"
   ).bind(id).all();
   const { results: evts } = await c.env.DB.prepare(
     "SELECT kind, detail, created_at FROM events WHERE session_id = ? AND kind != 'outbox' ORDER BY id ASC LIMIT 200"
@@ -239,6 +241,31 @@ app.get("/api/events", async (c) => {
     "SELECT session_id, kind, detail, created_at FROM events WHERE kind != 'outbox' ORDER BY id DESC LIMIT 50"
   ).all();
   return c.json(results);
+});
+
+// Proxy uploaded media for the dashboard. Host-allowlisted (no open SSRF) and
+// only serves URLs that were actually stored on a message row.
+app.get("/api/media", async (c) => {
+  const u = c.req.query("u");
+  if (!u) return c.text("missing u", 400);
+  let host: string;
+  try {
+    host = new URL(u).hostname;
+  } catch {
+    return c.text("bad url", 400);
+  }
+  const allowed = host === "api.twilio.com" || host.endsWith(".twilio.com") || host.endsWith(".workers.dev");
+  if (!allowed) return c.text("forbidden host", 403);
+  const known = await c.env.DB.prepare("SELECT 1 FROM messages WHERE media_url = ? LIMIT 1").bind(u).first();
+  if (!known) return c.text("unknown media", 404);
+  try {
+    const { data, contentType } = await fetchTwilioMedia(c.env, u);
+    return new Response(data, {
+      headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=3600" },
+    });
+  } catch {
+    return c.text("fetch failed", 502);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -137,6 +137,16 @@
   .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
   .msg .tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display: block; margin-bottom: 3px; }
   .msg .tag .k { color: var(--amber); }
+  .msg-media { display: block; margin-top: 6px; max-width: 200px; max-height: 150px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
+  .msg-doc { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--teal); text-decoration: none; font-size: 12px; font-weight: 500; }
+  .msg-doc:hover { border-color: var(--teal); }
+  .msg-audio { display: block; margin-top: 6px; width: 210px; height: 32px; }
+  /* lightbox */
+  #lightbox { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center;
+    background: rgba(4,8,16,0.88); backdrop-filter: blur(4px); cursor: zoom-out; }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 10px; box-shadow: 0 20px 80px rgba(0,0,0,0.6); }
 
   /* events */
   .events { flex: 1; overflow-y: auto; max-height: 300px; }
@@ -211,6 +221,8 @@
 </div>
 <footer>synthetic demo data only · no PHI · groq llama-3.3-70b + whisper + scout vision · cloudflare workers + d1 · twilio voice + whatsapp</footer>
 
+<div id="lightbox" onclick="this.classList.remove('open')"><img alt="attachment preview"></div>
+
 <script>
 const FIELDS = [
   ["patient_name","Patient Name"],["date_of_birth","Date of Birth"],
@@ -282,6 +294,7 @@ function renderDetail(d){
     <div class="msg ${m.role}">
       <span class="tag">${m.role === "user" ? "caller" : "cara"} · <span class="k">${esc(m.kind)}</span> · ${esc(m.channel)}</span>
       ${esc(m.content.length > 400 ? m.content.slice(0, 400) + "…" : m.content)}
+      ${mediaHtml(m)}
     </div>`).join("") || '<div class="empty">No messages yet</div>';
   if (atBottom) tr.scrollTop = tr.scrollHeight;
 
@@ -289,6 +302,21 @@ function renderDetail(d){
   pk.innerHTML = s.packet
     ? "<pre>" + esc(JSON.stringify(s.packet, null, 2)) + "</pre>"
     : '<div class="empty">Generated automatically when intake completes</div>';
+}
+
+function mediaHtml(m){
+  if (!m.media_url) return "";
+  const src = "/api/media?u=" + encodeURIComponent(m.media_url);
+  const t = (m.media_type || "") + " " + (m.kind || "");
+  if (/image/.test(t)) return `<img class="msg-media" src="${src}" alt="uploaded image" onclick="zoom('${src}')">`;
+  if (/pdf/.test(t))   return `<a class="msg-doc" href="${src}" target="_blank" rel="noopener">📄 View document</a>`;
+  if (/audio/.test(t)) return `<audio class="msg-audio" controls preload="none" src="${src}"></audio>`;
+  return `<a class="msg-doc" href="${src}" target="_blank" rel="noopener">📎 View attachment</a>`;
+}
+function zoom(src){
+  const lb = document.getElementById("lightbox");
+  lb.querySelector("img").src = src;
+  lb.classList.add("open");
 }
 
 function renderAppointments(appts){

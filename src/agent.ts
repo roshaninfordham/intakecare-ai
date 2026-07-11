@@ -26,10 +26,11 @@ export async function handleTurn(
   session: Session,
   userText: string,
   channel: Channel,
-  kind = "text"
+  kind = "text",
+  media?: { url: string; type: string }
 ): Promise<TurnResult> {
   session.last_channel = channel;
-  await addMessage(env, session.id, "user", channel, kind, userText);
+  await addMessage(env, session.id, "user", channel, kind, userText, media?.url, media?.type);
 
   const ragContext = await retrieveContext(env, userText).catch(() => "");
   const history = await recentMessages(env, session.id);

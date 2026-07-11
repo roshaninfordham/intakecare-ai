@@ -48,12 +48,14 @@ export async function addMessage(
   role: "user" | "agent",
   channel: Channel,
   kind: string,
-  content: string
+  content: string,
+  mediaUrl?: string | null,
+  mediaType?: string | null
 ): Promise<void> {
   await env.DB.prepare(
-    "INSERT INTO messages (session_id, role, channel, kind, content) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO messages (session_id, role, channel, kind, content, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
   )
-    .bind(sessionId, role, channel, kind, content)
+    .bind(sessionId, role, channel, kind, content, mediaUrl ?? null, mediaType ?? null)
     .run();
 }
 
