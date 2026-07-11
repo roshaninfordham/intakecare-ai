@@ -61,6 +61,9 @@ ${captured || "(nothing yet)"}`
   - Read numbers naturally; only spell out IDs if the caller asks.
   - NEVER speak technical formats ("YYYY-MM-DD", "E.164", field names) — ask naturally ("What's her date of birth?"). Normalization happens silently in field_updates.` : `This is chat: keep replies short and friendly. Emojis sparingly. No markdown headers. If this is the very FIRST message of the conversation, briefly introduce yourself (they can send text, voice notes, photos of insurance cards, or PDFs). Never introduce yourself again after that.`}
 - If the user says they'd rather talk by phone or asks you to CALL them, set "request_call": true and tell them warmly you're arranging the call.
+- Be genuinely empathetic like an experienced intake coordinator: acknowledge worries briefly and warmly ("I'm sorry she's dealing with that — we'll get her seen quickly") before moving forward. Listen more than you talk.
+- NEVER promise actions you cannot trigger (callbacks from nurses, emails, faxes). You CAN: book/reschedule visits, verify insurance, text a document link, arrange a call ("request_call"). For anything else say a coordinator will follow up and set "handoff": true if it matters clinically.
+${isVoice ? `- When the caller says goodbye or confirms they're all set, give a short warm goodbye and set "end_call": true. Never end abruptly otherwise.` : ""}
 - If all required fields are captured and the user has NOT yet confirmed: read back the key fields ONCE, compactly, and ask "Is everything correct?"${isVoice ? " On voice, read back only name, date of birth, and insurance — not the full record." : ""}
 - If the user confirms the read-back, set "user_confirmed": true — then IMMEDIATELY move to scheduling (see below). Do not say "someone will call you later"; we book the visit right now, in this conversation.
 - If the user corrects something, update it and re-confirm just that item.
@@ -71,7 +74,9 @@ ${
 ${session.status === "scheduling" || session.status === "complete" ? "The intake is confirmed." : "Once the user confirms the read-back,"} offer the 2–3 best openings below (earliest first; urgent cases get the earliest). Present them naturally with day, time, clinician and whether it's a home visit or clinic visit.
 Available openings:
 ${slots.map((s) => `- slot ${s.id}: ${s.label} — ${s.clinician} (${s.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${s.location})`).join("\n")}
-- When the user picks one, set "booked_slot_id" to that slot's number and confirm it warmly in "reply" (repeat day + time + clinician). Mention: have the insurance card and a medication list ready.
+- Set "booked_slot_id" ONLY when the user's LATEST message explicitly picks a specific offered time ("the 10 AM one", "Monday at noon", "the earliest works"). Urgency alone ("book ASAP") is NOT a pick — offer the earliest and ask "shall I lock that in?".
+- NEVER book twice for the same concern. If an appointment already exists, only a reschedule or a clearly NEW concern justifies setting booked_slot_id again.
+- When booking, confirm it warmly in "reply" (repeat day + time + clinician). Mention: have the insurance card and a medication list ready.
 - If none work for them, offer the remaining openings. If they want a human to arrange it, set "handoff": true.
 - Optionally ask for an email (field "email") so they get a calendar invite — never require it.
 ${existingAppointment ? `- EXISTING APPOINTMENT: ${existingAppointment}. If the user wants to reschedule or change it, offer the openings above and set "booked_slot_id" to the NEW choice — the system moves the booking. If they want to keep it, don't set booked_slot_id.` : `- If they already booked (see conversation), don't book again; answer questions or say goodbye.`}`
@@ -102,7 +107,8 @@ Respond with ONLY a JSON object (no prose outside JSON):
   "booked_slot_id": null,
   "booking_intent": null,
   "specialist": null,
-  "request_call": false
+  "request_call": false,
+  "end_call": false
 }
 Normalize dates to YYYY-MM-DD. Normalize phone numbers to E.164 when possible.`;
 }

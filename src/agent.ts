@@ -99,6 +99,7 @@ export async function handleTurn(
       booking_intent: null,
       specialist: null,
       request_call: false,
+      end_call: false,
     };
   }
 
@@ -152,7 +153,9 @@ export async function handleTurn(
       const chosen = slots.find((s) => s.id === Number(decision.booked_slot_id));
       if (chosen) {
         const patientName = session.fields.patient_name ?? "CareLine patient";
-        const wantsNew = decision.booking_intent === "new" || !existingAppt;
+        // a second booking requires a genuinely new concern; otherwise treat as reschedule
+        const hasNewConcern = !!(decision.specialist || decision.field_updates?.new_concern || session.fields.new_concern);
+        const wantsNew = !existingAppt || (decision.booking_intent === "new" && hasNewConcern);
         try {
           if (existingAppt?.cal_uid && !wantsNew) {
             // reschedule the real Cal.com booking (Cal issues a NEW uid — store it)

@@ -12,7 +12,9 @@ const LANG_TAGS: Record<string, string> = {
   pt: "pt-BR",
 };
 
-const ELEVENLABS_VOICE = "21m00Tcm4TlvDq8ikWAM";
+// Amelia (warm conversational) on flash v2.5 — speed 1.0, lower stability for
+// natural expressiveness, per Twilio's voiceId-model-speed_stability_similarity syntax
+const ELEVENLABS_VOICE = "ZF6FPAbjXT4488VcRRnw-flash_v2_5-1.0_0.5_0.75";
 
 function greetingText(env: Env, patientName?: string | null): string {
   if (patientName) {
@@ -113,10 +115,11 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
     if (result.decision.send_text_request) {
       await textCallerForDoc(env, callerPhone, result.decision.send_text_request);
     }
-    if (result.decision.handoff || result.bookedNow) {
+    // end only on explicit goodbye or a human handoff — never yank the call after a booking
+    if (result.decision.handoff || (result.decision as any).end_call) {
       setTimeout(() => {
         try { server.send(JSON.stringify({ type: "end" })); } catch {}
-      }, 10000);
+      }, 9000);
     }
   };
 

@@ -108,4 +108,5 @@ export interface AgentDecision {
   booking_intent: "new" | "reschedule" | null; // new appointment vs moving the existing one
   specialist: string | null; // routed clinician for a new concern (from the roster)
   request_call: boolean; // user asked to be called on the phone
+  end_call: boolean; // caller said goodbye — wrap up the voice call
 }
