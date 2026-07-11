@@ -338,7 +338,7 @@ async function toggleCall(){
   try {
     if (!window.Twilio) await new Promise((res, rej) => {
       const s = document.createElement("script");
-      s.src = "https://sdk.twilio.com/js/voice/releases/2.12.1/twilio.min.js";
+      s.src = "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.12.1/dist/twilio.min.js";
       s.onload = res; s.onerror = rej; document.head.appendChild(s);
     });
     const { token } = await (await fetch("/api/voice-token")).json();
@@ -352,7 +352,9 @@ async function toggleCall(){
     activeCall.on("cancel", done);
     activeCall.on("error", (e) => { console.error(e); done(); });
   } catch(e) {
-    console.error(e); alert("Call failed: " + (e.message || e));
+    console.error("call error:", e);
+    const detail = e && (e.message || e.code) ? `${e.message ?? ""} (code ${e.code ?? "?"})` : "couldn't load the calling library — check network";
+    alert("Call failed: " + detail);
     btn.textContent = "📞 Call Cara"; btn.classList.remove("in-call");
   }
 }

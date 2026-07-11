@@ -1,0 +1,41 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: CareLineAI
+    - generic [ref=e4]: Live Intake Monitor
+    - button "📞 Call Cara" [ref=e6] [cursor=pointer]
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: "0"
+        - generic [ref=e10]: Active
+      - generic [ref=e11]:
+        - generic [ref=e12]: "0"
+        - generic [ref=e13]: Booked
+      - generic [ref=e14]:
+        - generic [ref=e15]: "0"
+        - generic [ref=e16]: Completed
+      - generic [ref=e17]:
+        - generic [ref=e18]: "0"
+        - generic [ref=e19]: Guardrails
+      - generic [ref=e20]:
+        - generic [ref=e21]: "--:--"
+        - generic [ref=e22]: 24/7 · All languages
+  - generic [ref=e23]:
+    - generic [ref=e25]:
+      - heading "Sessions" [level=2] [ref=e26]
+      - generic [ref=e27]: Waiting for the first message… text or call the CareLine number.
+    - generic [ref=e29]:
+      - heading "Intake Record" [level=2] [ref=e31]
+      - generic [ref=e33]:
+        - heading "Conversation" [level=2] [ref=e34]
+        - generic [ref=e35]: Select a session
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - heading "Booked Appointments" [level=2] [ref=e39]
+        - generic [ref=e40]: Cara books the first visit in-conversation
+      - generic [ref=e42]:
+        - heading "Guardrails & System Events" [level=2] [ref=e43]
+        - generic [ref=e44]: No events yet
+      - generic [ref=e46]:
+        - heading "Start-of-Care Packet" [level=2] [ref=e47]
+        - generic [ref=e48]: Generated automatically when intake completes
+  - contentinfo [ref=e50]: synthetic demo data only · no PHI · groq llama-3.3-70b + whisper + scout vision · cloudflare workers + d1 · twilio voice + whatsapp

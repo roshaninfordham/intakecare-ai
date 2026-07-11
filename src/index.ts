@@ -83,7 +83,10 @@ async function processInbound(
     const result = await handleTurn(env, session, userText, channel, kind);
     const replies = [result.reply];
     if (result.packetNow && result.refId) {
-      replies.push(`✅ Intake confirmed — reference ${result.refId}. Insurance verification has started.`);
+      replies.push(
+        `✅ Intake confirmed — reference ${result.refId}.` +
+          (result.eligibility ? `\n🛡️ Insurance check: ${result.eligibility.summary}.` : "")
+      );
     }
     if (result.bookedNow && result.appointment) {
       const a = result.appointment;

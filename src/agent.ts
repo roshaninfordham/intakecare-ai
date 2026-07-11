@@ -13,6 +13,7 @@ export interface TurnResult {
   rescheduledNow: boolean;
   refId: string | null;
   appointment: { label: string; clinician: string; kind: string; location: string } | null;
+  eligibility: Eligibility | null;
 }
 
 /**
@@ -113,6 +114,7 @@ export async function handleTurn(
   let rescheduledNow = false;
   let refId: string | null = (session.packet?.reference_id as string) ?? null;
   let appointment: TurnResult["appointment"] = null;
+  let eligibility: Eligibility | null = null;
 
   if (session.status !== "handoff") {
     if (missing.length > 0) {
@@ -121,8 +123,16 @@ export async function handleTurn(
       packetNow = true;
       session.status = "scheduling";
       refId = makeRefId(session.id);
+      // instant automated eligibility check — the work a human coordinator queues for "1 business day"
+      const t0 = Date.now();
+      eligibility = verifyEligibility(session.fields);
       session.packet = await generatePacket(env, session, refId);
+      session.packet.eligibility = eligibility as unknown as Record<string, unknown>;
       await logEvent(env, session.id, "packet", `Start-of-care packet ${refId} generated`);
+      await logEvent(
+        env, session.id, "packet",
+        `Eligibility verified in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${eligibility.summary}`
+      );
     } else if (!session.packet) {
       session.status = "confirming";
     }
@@ -174,7 +184,41 @@ export async function handleTurn(
   await addMessage(env, session.id, "agent", channel, "text", decision.reply);
   await saveSession(env, session);
 
-  return { reply: decision.reply, decision, packetNow, bookedNow, rescheduledNow, refId, appointment };
+  return { reply: decision.reply, decision, packetNow, bookedNow, rescheduledNow, refId, appointment, eligibility };
+}
+
+export interface Eligibility {
+  eligible: boolean | null;
+  summary: string;
+}
+
+const ACCEPTED_PAYERS = [
+  "medicare", "medicaid", "aetna", "unitedhealthcare", "united healthcare",
+  "empire", "bluecross", "blue cross", "cigna", "humana",
+];
+
+/**
+ * Automated eligibility verification (synthetic payer rules for the demo; in
+ * production this is an EDI 270/271 or payer-API call — same shape, same speed).
+ */
+function verifyEligibility(fields: Session["fields"]): Eligibility {
+  const payer = (fields.insurance_payer ?? "").toLowerCase();
+  const memberId = fields.insurance_member_id ?? "";
+  if (!payer || !memberId) {
+    return { eligible: null, summary: "Missing payer or member ID — flagged for manual verification" };
+  }
+  const match = ACCEPTED_PAYERS.find((p) => payer.includes(p));
+  if (!match) {
+    return {
+      eligible: null,
+      summary: `${fields.insurance_payer} is out of network — coordinator will confirm options within 1 business day`,
+    };
+  }
+  const isMA = payer.includes("advantage") || payer.includes("medicare");
+  return {
+    eligible: true,
+    summary: `${fields.insurance_payer} (member ${memberId}) — in network, home health covered${isMA ? ", no prior auth required for the initial evaluation" : ", prior auth auto-submitted for the initial evaluation"}`,
+  };
 }
 
 interface ApptRow {

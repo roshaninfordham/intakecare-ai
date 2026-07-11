@@ -62,7 +62,9 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
   const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
   server.accept();
 
-  let callerPhone = new URL(request.url).searchParams.get("caller") || "unknown";
+  const reqUrl = new URL(request.url);
+  const typingSound = `https://${reqUrl.host}/demo/typing.wav`;
+  let callerPhone = reqUrl.searchParams.get("caller") || "unknown";
   let lastEventId = 0;
   let docPollTimer: ReturnType<typeof setInterval> | null = null;
   let processing = false;
@@ -101,6 +103,8 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
         if (processing) return;
         processing = true;
         try {
+          // soft keyboard sound while Cara "notes it down" — masks LLM latency, feels human
+          server.send(JSON.stringify({ type: "play", source: typingSound, loop: 1, preemptible: true, interruptible: true }));
           const session = await getOrCreateSession(env, callerPhone, "voice");
           const result = await handleTurn(env, session, msg.voicePrompt, "voice", "call");
           speak(result.reply);
