@@ -86,8 +86,17 @@ async function processInbound(
     }
 
     if (!userText.trim()) userText = "[empty message]";
+
+    // deliver anything queued while we couldn't push (e.g. booking confirmations from a voice call)
+    const { results: outbox } = await env.DB.prepare(
+      "SELECT id, detail FROM events WHERE session_id = ? AND kind = 'outbox' ORDER BY id ASC"
+    ).bind(phone).all();
+    if (outbox.length) {
+      await env.DB.prepare("DELETE FROM events WHERE session_id = ? AND kind = 'outbox'").bind(phone).run();
+    }
+
     const result = await handleTurn(env, session, userText, channel, kind);
-    const replies = [result.reply];
+    const replies = [...(outbox as any[]).map((o) => String(o.detail)), result.reply];
 
     if (result.decision.request_call) {
       replies.push(await placeOutboundCall(env, phone));
@@ -210,7 +219,7 @@ app.get("/api/sessions/:id", async (c) => {
     "SELECT role, channel, kind, content, created_at FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 200"
   ).bind(id).all();
   const { results: evts } = await c.env.DB.prepare(
-    "SELECT kind, detail, created_at FROM events WHERE session_id = ? ORDER BY id ASC LIMIT 200"
+    "SELECT kind, detail, created_at FROM events WHERE session_id = ? AND kind != 'outbox' ORDER BY id ASC LIMIT 200"
   ).bind(id).all();
   const { results: appts } = await c.env.DB.prepare(
     "SELECT ref_id, patient_name, label, kind, clinician, location, cal_uid, created_at FROM appointments WHERE session_id = ? ORDER BY id DESC"
@@ -227,7 +236,7 @@ app.get("/api/appointments", async (c) => {
 
 app.get("/api/events", async (c) => {
   const { results } = await c.env.DB.prepare(
-    "SELECT session_id, kind, detail, created_at FROM events ORDER BY id DESC LIMIT 50"
+    "SELECT session_id, kind, detail, created_at FROM events WHERE kind != 'outbox' ORDER BY id DESC LIMIT 50"
   ).all();
   return c.json(results);
 });

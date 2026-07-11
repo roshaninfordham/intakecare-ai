@@ -8,7 +8,7 @@ function authHeader(env: Env): string {
 }
 
 /** Send an outbound message. `to`/`from` include channel prefix, e.g. whatsapp:+1555... */
-export async function sendMessage(env: Env, to: string, from: string, body: string): Promise<void> {
+export async function sendMessage(env: Env, to: string, from: string, body: string): Promise<boolean> {
   const res = await fetch(`${API_BASE}/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`, {
     method: "POST",
     headers: {
@@ -18,6 +18,7 @@ export async function sendMessage(env: Env, to: string, from: string, body: stri
     body: new URLSearchParams({ To: to, From: from, Body: body }),
   });
   if (!res.ok) console.error(`twilio send failed ${res.status}: ${await res.text()}`);
+  return res.ok;
 }
 
 /**

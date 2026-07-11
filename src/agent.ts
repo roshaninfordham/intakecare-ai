@@ -157,12 +157,17 @@ export async function handleTurn(
         const hasNewConcern = !!(decision.specialist || decision.field_updates?.new_concern || session.fields.new_concern);
         const wantsNew = !existingAppt || (decision.booking_intent === "new" && hasNewConcern);
         try {
-          if (existingAppt?.cal_uid && !wantsNew) {
+          if (existingAppt && !wantsNew && existingAppt.start_ts === chosen.start_ts) {
+            // no-op: "rescheduling" to the identical time — ignore (LLM echoing the slot id)
+          } else if (existingAppt?.cal_uid && !wantsNew) {
             // reschedule the real Cal.com booking (Cal issues a NEW uid — store it)
             const moved = await rescheduleCalBooking(env, existingAppt.cal_uid, chosen.start_ts);
             await env.DB.prepare("UPDATE appointments SET start_ts = ?, label = ?, cal_uid = ? WHERE id = ?")
               .bind(chosen.start_ts, chosen.label, moved.uid, existingAppt.id).run();
             rescheduledNow = true;
+            session.status = "complete";
+            bookedNow = true;
+            appointment = { label: chosen.label, clinician: existingAppt.clinician, kind: existingAppt.kind, location: existingAppt.location };
             await logEvent(env, session.id, "packet", `Appointment rescheduled to ${chosen.label} (Cal.com ${existingAppt.cal_uid})`);
           } else {
             let calUid: string | null = null;
@@ -175,9 +180,11 @@ export async function handleTurn(
               await env.DB.prepare("UPDATE slots SET booked = 1, booked_by = ? WHERE id = ?")
                 .bind(session.id, chosen.id).run();
             }
-            // specialist routing for returning patients with a new concern
-            const clinician = decision.specialist || chosen.clinician;
-            const kind = decision.specialist && /dr\.|md|cardio|endo|pulmo/i.test(decision.specialist)
+            // specialist routing applies only to FOLLOW-UP bookings for a new concern —
+            // the first visit is always the SOC nurse visit, even if a specialist was recommended
+            const specialist = existingAppt ? decision.specialist : null;
+            const clinician = specialist || chosen.clinician;
+            const kind = specialist && /dr\.|md|cardio|endo|pulmo/i.test(specialist)
               ? "clinic_followup" : chosen.kind;
             const location = kind === "clinic_followup" ? "CareLine Partner Clinic, 200 W 57th St" : chosen.location;
             await env.DB.prepare(
@@ -187,12 +194,11 @@ export async function handleTurn(
               chosen.start_ts, chosen.label, kind, clinician, location, calUid
             ).run();
             await logEvent(env, session.id, "packet",
-              `Appointment booked: ${chosen.label} with ${clinician}${decision.specialist ? ` [routed: ${session.fields.new_concern ?? "new concern"}]` : ""}${calUid ? ` (Cal.com ${calUid})` : " (local calendar)"}`);
+              `Appointment booked: ${chosen.label} with ${clinician}${specialist ? ` [routed: ${session.fields.new_concern ?? "new concern"}]` : ""}${calUid ? ` (Cal.com ${calUid})` : " (local calendar)"}`);
             appointment = { label: chosen.label, clinician, kind, location };
+            session.status = "complete";
+            bookedNow = true;
           }
-          session.status = "complete";
-          bookedNow = true;
-          appointment = appointment ?? { label: chosen.label, clinician: chosen.clinician, kind: chosen.kind, location: chosen.location };
         } catch (e) {
           console.error("booking failed:", e);
           await logEvent(env, session.id, "system", `booking error: ${String(e).slice(0, 150)}`);
@@ -245,12 +251,15 @@ interface ApptRow {
   id: number;
   label: string;
   clinician: string;
+  kind: string;
+  location: string;
+  start_ts: string;
   cal_uid: string | null;
 }
 
 async function latestAppointment(env: Env, sessionId: string): Promise<ApptRow | null> {
   const row = await env.DB.prepare(
-    "SELECT id, label, clinician, cal_uid FROM appointments WHERE session_id = ? ORDER BY id DESC LIMIT 1"
+    "SELECT id, label, clinician, kind, location, start_ts, cal_uid FROM appointments WHERE session_id = ? ORDER BY id DESC LIMIT 1"
   ).bind(sessionId).first<ApptRow>();
   return row ?? null;
 }

@@ -106,15 +106,33 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
     server.send(JSON.stringify({ type: "text", token: text, last: true, lang }));
   };
 
-  const runTurn = async (input: string) => {
+  const runTurn = async (input: string, keepLang = false) => {
     server.send(JSON.stringify({ type: "play", source: typingSound, loop: 1, preemptible: true, interruptible: true }));
     const session = await getOrCreateSession(env, callerPhone, "voice");
     const result = await handleTurn(env, session, input, "voice", "call");
-    const lang = LANG_TAGS[result.decision.language] ?? currentLang;
-    currentLang = lang;
-    speak(result.reply, lang);
+    // language follows the CALLER's speech, never document contents;
+    // system-note turns (keepLang) always stay in the call's current language
+    if (!keepLang) {
+      currentLang = LANG_TAGS[result.decision.language] ?? currentLang;
+    }
+    speak(result.reply, currentLang);
     if (result.decision.send_text_request) {
       await textCallerForDoc(env, callerPhone, result.decision.send_text_request);
+    }
+    if (result.bookedNow && result.appointment) {
+      // written confirmation to WhatsApp: sent live once Twilio KYC clears;
+      // until then queued as an outbox message delivered on their next WhatsApp contact
+      const a = result.appointment;
+      const confirmation =
+        `📅 ${result.rescheduledNow ? "Rescheduled" : "Confirmed"}: ${a.label} with ${a.clinician} ` +
+        `(${a.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${a.location}). ` +
+        `Reference ${result.refId ?? ""}. It's on the clinic calendar — a Cal.com invite follows if you shared an email. ` +
+        `Please have the insurance card and a medication list ready. Reply here anytime to reschedule.`;
+      const delivered = await sendMessage(env, `whatsapp:${callerPhone}`, env.TWILIO_WHATSAPP_FROM, confirmation).catch(() => false);
+      if (!delivered) {
+        await env.DB.prepare("INSERT INTO events (session_id, kind, detail) VALUES (?, 'outbox', ?)")
+          .bind(callerPhone, confirmation).run();
+      }
     }
     // end only on explicit goodbye or a human handoff — never yank the call after a booking
     if (result.decision.handoff || (result.decision as any).end_call) {
@@ -155,14 +173,16 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
           void (async () => {
             if (processing) return;
             const row2 = await env.DB.prepare(
-              "SELECT id FROM events WHERE session_id = ? AND kind = 'media' AND id > ? AND detail LIKE 'Received%' ORDER BY id DESC LIMIT 1"
+              "SELECT id, detail FROM events WHERE session_id = ? AND kind = 'media' AND id > ? AND detail LIKE 'Received%' ORDER BY id DESC LIMIT 1"
             ).bind(callerPhone, lastEventId).first();
             if (row2) {
               lastEventId = Number((row2 as any).id);
+              const docDetail = String((row2 as any).detail ?? "a document");
               processing = true;
               try {
                 await runTurn(
-                  "[system note: the caller's document just arrived by WhatsApp and its fields are merged. In ONE short sentence, acknowledge it naturally, mention one detail you captured, then ask the next missing item — or move to scheduling if nothing is missing.]"
+                  `[system note: the caller's document just arrived on WhatsApp and its fields are merged into the record. It was: "${docDetail}". Acknowledge it specifically ("I see you've shared the insurance card…"), name one captured detail and confirm it belongs to the patient ("…for Maria Lopez, Aetna — is that your mom's?"), then ask the next missing item — or move to scheduling if nothing is missing. Reply in the SAME language the caller has been speaking on this call, regardless of the document's language.]`,
+                  true
                 );
               } finally {
                 processing = false;
