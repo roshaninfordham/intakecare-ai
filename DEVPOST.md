@@ -21,7 +21,7 @@ A multimodal AI intake coordinator that turns healthcare's slowest step — pati
 
 Every conversation is grounded in the agency's policy corpus via RAG (no invented policy), every extraction lands in a **typed JSON schema** (no hallucinated fields), and completion requires a **read-back confirmation**.
 
-**And the loop actually closes.** Where today's intake ends with "someone will call you within 24–48 hours," Cara immediately offers real openings from the clinic calendar and **books the start-of-care visit in the same conversation** — urgent discharges get the earliest slot. Output: booked appointment + start-of-care packet + live ops dashboard + confirmation message. Referral-to-scheduled-visit, which takes 3–7 days of phone tag today, happens in one conversation. An outbound-call endpoint is wired so Cara can also *place* the scheduling call herself (pending Twilio number provisioning).
+**And the loop actually closes.** Where today's intake ends with "someone will call you within 24–48 hours," Cara pulls live availability from the agency's **real Cal.com calendar** and **books the start-of-care visit in the same conversation** — urgent discharges get the earliest slot, and the booking lands on the clinic's actual calendar (with invites/sync). Patients reschedule the same way they booked: by chat or by voice. If Cal.com is ever unreachable, the agent degrades gracefully to a local D1 calendar — the conversation never breaks. Output: booked appointment + start-of-care packet + live ops dashboard + confirmation message. Referral-to-scheduled-visit, which takes 3–7 days of phone tag today, happens in one conversation. An outbound-call endpoint is wired so Cara can also *place* the scheduling call herself (pending Twilio number provisioning).
 
 **Guardrails are first-class**: the agent hard-refuses clinical/medication questions (visible 🛡️ events on the dashboard), directs emergencies to 911 with human handoff, and runs on 100% synthetic data.
 
@@ -37,6 +37,7 @@ Every conversation is grounded in the agency's policy corpus via RAG (no invente
 | Image understanding | **Groq llama-4-scout** vision | Insurance cards, referral photos |
 | PDF understanding | **Cloudflare Workers AI** toMarkdown | Referral/discharge PDFs → text → structured extraction |
 | RAG | **Workers AI bge-base-en-v1.5** embeddings | Policy corpus in D1, cosine retrieval in-Worker |
+| Scheduling | **Cal.com API v2** | Live slots, real bookings + reschedules from chat and voice; local D1 calendar fallback |
 | State | **Cloudflare D1** | Phone-number-keyed sessions, transcripts, guardrail event log |
 
 Total infrastructure cost: **$0** (every service on free tier; Twilio on hackathon promo credit).

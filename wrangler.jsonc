@@ -25,6 +25,7 @@
   "vars": {
     "TWILIO_WHATSAPP_FROM": "whatsapp:+14155238886",
     "AGENT_NAME": "Cara",
-    "ORG_NAME": "CareLine Home Health"
+    "ORG_NAME": "CareLine Home Health",
+    "CAL_EVENT_TYPE_ID": "6285396"
   }
 }

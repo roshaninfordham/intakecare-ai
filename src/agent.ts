@@ -3,12 +3,14 @@ import { agentSystemPrompt, packetPrompt } from "./prompts";
 import { chatWithFallback, parseJsonLoose } from "./llm";
 import { addMessage, logEvent, recentMessages, saveSession } from "./db";
 import { retrieveContext } from "./rag";
+import { createCalBooking, getCalSlots, rescheduleCalBooking } from "./cal";
 
 export interface TurnResult {
   reply: string;
   decision: AgentDecision;
   packetNow: boolean; // intake confirmed + SOC packet generated this turn
-  bookedNow: boolean; // appointment booked this turn
+  bookedNow: boolean; // appointment booked (or rescheduled) this turn
+  rescheduledNow: boolean;
   refId: string | null;
   appointment: { label: string; clinician: string; kind: string; location: string } | null;
 }
@@ -32,14 +34,24 @@ export async function handleTurn(
   const history = await recentMessages(env, session.id);
 
   // when all required fields are in, the agent gets the live clinic calendar
+  // (Cal.com is the source of truth; the local D1 calendar is the fallback)
   const missingBefore = REQUIRED_FIELDS.filter((f) => !session.fields[f]);
   let slots: Slot[] = [];
-  if (missingBefore.length === 0 && session.status !== "complete") {
-    const { results } = await env.DB.prepare(
-      "SELECT id, start_ts, label, kind, clinician, location FROM slots WHERE booked = 0 ORDER BY start_ts ASC LIMIT 6"
-    ).all();
-    slots = results as unknown as Slot[];
+  let slotsSource: "cal" | "local" = "cal";
+  if (missingBefore.length === 0) {
+    try {
+      slots = await getCalSlots(env);
+    } catch (e) {
+      console.error("cal.com slots failed, using local calendar:", e);
+      slotsSource = "local";
+      const { results } = await env.DB.prepare(
+        "SELECT id, start_ts, label, kind, clinician, location FROM slots WHERE booked = 0 ORDER BY start_ts ASC LIMIT 6"
+      ).all();
+      slots = results as unknown as Slot[];
+    }
   }
+
+  const existingAppt = await latestAppointment(env, session.id);
 
   const system = agentSystemPrompt({
     agentName: env.AGENT_NAME,
@@ -48,6 +60,7 @@ export async function handleTurn(
     channel,
     ragContext,
     slots,
+    existingAppointment: existingAppt ? `${existingAppt.label} with ${existingAppt.clinician}` : null,
   });
 
   const messages = [
@@ -97,6 +110,7 @@ export async function handleTurn(
   const missing = REQUIRED_FIELDS.filter((f) => !session.fields[f]);
   let packetNow = false;
   let bookedNow = false;
+  let rescheduledNow = false;
   let refId: string | null = (session.packet?.reference_id as string) ?? null;
   let appointment: TurnResult["appointment"] = null;
 
@@ -113,24 +127,46 @@ export async function handleTurn(
       session.status = "confirming";
     }
 
-    // booking: the user picked a slot
-    if (decision.booked_slot_id != null && session.packet && session.status !== "complete") {
-      const slot = await env.DB.prepare(
-        "SELECT id, start_ts, label, kind, clinician, location FROM slots WHERE id = ? AND booked = 0"
-      ).bind(decision.booked_slot_id).first<Slot>();
-      if (slot) {
-        await env.DB.prepare("UPDATE slots SET booked = 1, booked_by = ? WHERE id = ?")
-          .bind(session.id, slot.id).run();
-        await env.DB.prepare(
-          "INSERT INTO appointments (session_id, slot_id, ref_id, patient_name, start_ts, label, kind, clinician, location) VALUES (?,?,?,?,?,?,?,?,?)"
-        ).bind(
-          session.id, slot.id, refId, session.fields.patient_name ?? "unknown",
-          slot.start_ts, slot.label, slot.kind, slot.clinician, slot.location
-        ).run();
-        session.status = "complete";
-        bookedNow = true;
-        appointment = { label: slot.label, clinician: slot.clinician, kind: slot.kind, location: slot.location };
-        await logEvent(env, session.id, "packet", `Appointment booked: ${slot.label} with ${slot.clinician} (${refId ?? "no ref"})`);
+    // booking or rescheduling: the user picked a slot from the list they were shown
+    if (decision.booked_slot_id != null && session.packet) {
+      const chosen = slots.find((s) => s.id === Number(decision.booked_slot_id));
+      if (chosen) {
+        const patientName = session.fields.patient_name ?? "CareLine patient";
+        try {
+          if (existingAppt?.cal_uid) {
+            // reschedule the real Cal.com booking
+            await rescheduleCalBooking(env, existingAppt.cal_uid, chosen.start_ts);
+            await env.DB.prepare("UPDATE appointments SET start_ts = ?, label = ? WHERE id = ?")
+              .bind(chosen.start_ts, chosen.label, existingAppt.id).run();
+            rescheduledNow = true;
+            await logEvent(env, session.id, "packet", `Appointment rescheduled to ${chosen.label} (Cal.com ${existingAppt.cal_uid})`);
+          } else {
+            let calUid: string | null = null;
+            if (slotsSource === "cal") {
+              const booking = await createCalBooking(
+                env, chosen.start_ts, patientName, session.id, session.fields.email
+              );
+              calUid = booking.uid;
+            } else {
+              await env.DB.prepare("UPDATE slots SET booked = 1, booked_by = ? WHERE id = ?")
+                .bind(session.id, chosen.id).run();
+            }
+            await env.DB.prepare(
+              "INSERT INTO appointments (session_id, slot_id, ref_id, patient_name, start_ts, label, kind, clinician, location, cal_uid) VALUES (?,?,?,?,?,?,?,?,?,?)"
+            ).bind(
+              session.id, chosen.id, refId, patientName,
+              chosen.start_ts, chosen.label, chosen.kind, chosen.clinician, chosen.location, calUid
+            ).run();
+            await logEvent(env, session.id, "packet",
+              `Appointment booked: ${chosen.label} with ${chosen.clinician}${calUid ? ` (Cal.com ${calUid})` : " (local calendar)"}`);
+          }
+          session.status = "complete";
+          bookedNow = true;
+          appointment = { label: chosen.label, clinician: chosen.clinician, kind: chosen.kind, location: chosen.location };
+        } catch (e) {
+          console.error("booking failed:", e);
+          await logEvent(env, session.id, "system", `booking error: ${String(e).slice(0, 150)}`);
+        }
       }
     }
   }
@@ -138,7 +174,21 @@ export async function handleTurn(
   await addMessage(env, session.id, "agent", channel, "text", decision.reply);
   await saveSession(env, session);
 
-  return { reply: decision.reply, decision, packetNow, bookedNow, refId, appointment };
+  return { reply: decision.reply, decision, packetNow, bookedNow, rescheduledNow, refId, appointment };
+}
+
+interface ApptRow {
+  id: number;
+  label: string;
+  clinician: string;
+  cal_uid: string | null;
+}
+
+async function latestAppointment(env: Env, sessionId: string): Promise<ApptRow | null> {
+  const row = await env.DB.prepare(
+    "SELECT id, label, clinician, cal_uid FROM appointments WHERE session_id = ? ORDER BY id DESC LIMIT 1"
+  ).bind(sessionId).first<ApptRow>();
+  return row ?? null;
 }
 
 function makeRefId(phone: string): string {

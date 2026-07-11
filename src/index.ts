@@ -8,6 +8,7 @@ import { embed } from "./rag";
 import { KNOWLEDGE_DOCS } from "./knowledge";
 import { gatherTurn, handleRelayUpgrade, voiceTwiml } from "./voice";
 import { voiceAccessToken } from "./token";
+import { cancelCalBooking } from "./cal";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -87,7 +88,7 @@ async function processInbound(
     if (result.bookedNow && result.appointment) {
       const a = result.appointment;
       replies.push(
-        `📅 Booked: ${a.label} with ${a.clinician} (${a.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${a.location}). Reference ${result.refId ?? ""}. Please have the insurance card and a list of current medications ready. Reply here anytime to reschedule.`
+        `📅 ${result.rescheduledNow ? "Rescheduled" : "Booked"}: ${a.label} with ${a.clinician} (${a.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${a.location}). Reference ${result.refId ?? ""}. It's on the clinic calendar. Please have the insurance card and a list of current medications ready. Reply here anytime to reschedule.`
       );
     }
     return replies;
@@ -151,14 +152,14 @@ app.get("/api/sessions/:id", async (c) => {
     "SELECT kind, detail, created_at FROM events WHERE session_id = ? ORDER BY id ASC LIMIT 200"
   ).bind(id).all();
   const { results: appts } = await c.env.DB.prepare(
-    "SELECT ref_id, patient_name, label, kind, clinician, location, created_at FROM appointments WHERE session_id = ? ORDER BY id DESC"
+    "SELECT ref_id, patient_name, label, kind, clinician, location, cal_uid, created_at FROM appointments WHERE session_id = ? ORDER BY id DESC"
   ).bind(id).all();
   return c.json({ session: rowToSession(row as any), messages: msgs, events: evts, appointments: appts });
 });
 
 app.get("/api/appointments", async (c) => {
   const { results } = await c.env.DB.prepare(
-    "SELECT session_id, ref_id, patient_name, label, kind, clinician, location, created_at FROM appointments ORDER BY id DESC LIMIT 20"
+    "SELECT session_id, ref_id, patient_name, label, kind, clinician, location, cal_uid, created_at FROM appointments ORDER BY id DESC LIMIT 20"
   ).all();
   return c.json(results);
 });
@@ -248,12 +249,18 @@ app.post("/admin/reset", async (c) => {
   if (c.req.header("x-admin-key") !== c.env.ADMIN_KEY) return c.text("nope", 401);
   const phone = c.req.query("phone");
   if (!phone) return c.text("phone query param required", 400);
+  const { results: bookings } = await c.env.DB.prepare(
+    "SELECT cal_uid FROM appointments WHERE session_id = ? AND cal_uid IS NOT NULL"
+  ).bind(phone).all();
+  for (const b of bookings as { cal_uid: string }[]) {
+    await cancelCalBooking(c.env, b.cal_uid).catch((e) => console.error("cal cancel failed:", e));
+  }
   await c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(phone).run();
   await c.env.DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(phone).run();
   await c.env.DB.prepare("DELETE FROM events WHERE session_id = ?").bind(phone).run();
   await c.env.DB.prepare("UPDATE slots SET booked = 0, booked_by = NULL WHERE booked_by = ?").bind(phone).run();
   await c.env.DB.prepare("DELETE FROM appointments WHERE session_id = ?").bind(phone).run();
-  return c.json({ reset: phone });
+  return c.json({ reset: phone, cal_cancelled: bookings.length });
 });
 
 app.get("/health", (c) => c.json({ ok: true, service: "careline-ai" }));

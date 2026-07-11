@@ -298,7 +298,7 @@ function renderAppointments(appts){
     <div class="appt">
       <div class="when">📅 ${esc(a.label)}</div>
       <div class="who">${esc(a.patient_name)} · ${esc(a.clinician)} · ${a.kind === "soc_visit" ? "home visit" : "clinic visit"}</div>
-      <div class="where">${esc(a.location)} · ref ${esc(a.ref_id ?? "")}</div>
+      <div class="where">${esc(a.location)} · ref ${esc(a.ref_id ?? "")}${a.cal_uid ? " · 🗓 cal.com" : ""}</div>
     </div>`).join("");
 }
 

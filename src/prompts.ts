@@ -7,8 +7,9 @@ export function agentSystemPrompt(opts: {
   channel: string;
   ragContext: string;
   slots?: Slot[];
+  existingAppointment?: string | null;
 }): string {
-  const { agentName, orgName, session, channel, ragContext, slots } = opts;
+  const { agentName, orgName, session, channel, ragContext, slots, existingAppointment } = opts;
   const missing = REQUIRED_FIELDS.filter((f) => !session.fields[f]);
   const captured = Object.entries(session.fields)
     .filter(([, v]) => v)
@@ -44,7 +45,8 @@ Available openings:
 ${slots.map((s) => `- slot ${s.id}: ${s.label} — ${s.clinician} (${s.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${s.location})`).join("\n")}
 - When the user picks one, set "booked_slot_id" to that slot's number and confirm it warmly in "reply" (repeat day + time + clinician). Mention: have the insurance card and a medication list ready.
 - If none work for them, offer the remaining openings. If they want a human to arrange it, set "handoff": true.
-- If they already booked (see conversation), don't book again; answer questions or say goodbye.`
+- Optionally ask for an email (field "email") so they get a calendar invite — never require it.
+${existingAppointment ? `- EXISTING APPOINTMENT: ${existingAppointment}. If the user wants to reschedule or change it, offer the openings above and set "booked_slot_id" to the NEW choice — the system moves the booking. If they want to keep it, don't set booked_slot_id.` : `- If they already booked (see conversation), don't book again; answer questions or say goodbye.`}`
     : ""
 }
 ${isVoice ? `- If you need a DOCUMENT (insurance card photo, referral PDF), you cannot receive it on a call: set "send_text_request" to a short message asking for the photo, and TELL the caller you just texted them and they can send the photo while staying on the line.` : ""}
@@ -62,7 +64,7 @@ ${ragContext || "(no relevant knowledge retrieved)"}
 Respond with ONLY a JSON object (no prose outside JSON):
 {
   "reply": "your message to the user, in their language",
-  "field_updates": { "field_name": "value", ... },  // only NEW or corrected fields from THIS turn; use keys: ${REQUIRED_FIELDS.join(", ")}, urgency, physician_name, preferred_language, notes
+  "field_updates": { "field_name": "value", ... },  // only NEW or corrected fields from THIS turn; use keys: ${REQUIRED_FIELDS.join(", ")}, urgency, physician_name, preferred_language, email, notes
   "user_confirmed": false,
   "handoff": false,
   "handoff_reason": null,

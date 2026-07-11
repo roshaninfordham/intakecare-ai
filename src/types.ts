@@ -16,6 +16,8 @@ export interface Env {
   OPENROUTER_API_KEY: string;
   ELEVENLABS_API_KEY?: string;
   DEEPGRAM_API_KEY: string;
+  CAL_API_KEY: string;
+  CAL_EVENT_TYPE_ID: string;
   ADMIN_KEY: string;
 }
 

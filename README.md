@@ -23,7 +23,7 @@ One AI agent, one phone-number-keyed session, every channel:
 - ☎️ **Live voice call** — real-time agent via Twilio ConversationRelay (browser or PSTN)
 - 🔀 **Cross-channel magic** — mid-call, Cara texts you for the insurance card; the photo lands in the *same* session and she confirms it *on the call*
 
-Every answer is grounded in the agency's policy corpus (RAG), every field lands in a typed schema — and the conversation doesn't end at "we'll call you back." **Cara closes the loop: the moment intake is confirmed, she offers real openings from the clinic calendar and books the first visit in the same conversation** — start-of-care packet, booked appointment, live dashboard update, and confirmation, all before the patient puts the phone down.
+Every answer is grounded in the agency's policy corpus (RAG), every field lands in a typed schema — and the conversation doesn't end at "we'll call you back." **Cara closes the loop: the moment intake is confirmed, she pulls live availability from the agency's real calendar (Cal.com) and books the first visit in the same conversation** — start-of-care packet, a booking that lands on the clinic's actual calendar, live dashboard update, and confirmation, all before the patient puts the phone down. Need to change it later? Say so — by chat or by phone — and Cara reschedules the real booking.
 
 ```mermaid
 flowchart LR
@@ -139,6 +139,7 @@ Every guardrail firing is visible in the dashboard's event log — judges can wa
 | Image reading | **Groq** llama-4-scout vision |
 | PDF reading | **Cloudflare Workers AI** toMarkdown |
 | RAG | **Workers AI** bge-base-en-v1.5 embeddings + cosine in-Worker over D1 chunks |
+| Scheduling | **Cal.com API v2** — live slots, real bookings, reschedules (D1 local calendar fallback) |
 | Sessions/state | **Cloudflare D1** (SQLite) |
 | Fallback LLM | **OpenRouter** free tier |
 
