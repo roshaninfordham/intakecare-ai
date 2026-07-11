@@ -155,10 +155,10 @@ export async function handleTurn(
         const wantsNew = decision.booking_intent === "new" || !existingAppt;
         try {
           if (existingAppt?.cal_uid && !wantsNew) {
-            // reschedule the real Cal.com booking
-            await rescheduleCalBooking(env, existingAppt.cal_uid, chosen.start_ts);
-            await env.DB.prepare("UPDATE appointments SET start_ts = ?, label = ? WHERE id = ?")
-              .bind(chosen.start_ts, chosen.label, existingAppt.id).run();
+            // reschedule the real Cal.com booking (Cal issues a NEW uid — store it)
+            const moved = await rescheduleCalBooking(env, existingAppt.cal_uid, chosen.start_ts);
+            await env.DB.prepare("UPDATE appointments SET start_ts = ?, label = ?, cal_uid = ? WHERE id = ?")
+              .bind(chosen.start_ts, chosen.label, moved.uid, existingAppt.id).run();
             rescheduledNow = true;
             await logEvent(env, session.id, "packet", `Appointment rescheduled to ${chosen.label} (Cal.com ${existingAppt.cal_uid})`);
           } else {

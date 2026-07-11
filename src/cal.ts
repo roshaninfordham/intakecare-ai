@@ -21,13 +21,14 @@ export async function getCalSlots(env: Env, days = 4, limit = 6): Promise<Slot[]
   if (!res.ok) throw new Error(`cal slots ${res.status}: ${await res.text()}`);
   const data = ((await res.json()) as any).data as Record<string, { start: string }[]>;
   const out: Slot[] = [];
-  let id = 1;
   for (const day of Object.keys(data).sort()) {
     for (const s of data[day]) {
       if (out.length >= limit) break;
       const dt = new Date(s.start);
       out.push({
-        id: id++,
+        // stable id derived from the start time — the same slot keeps the same id
+        // across turns, so the model can never book a different time than it said
+        id: Math.floor(dt.getTime() / 60000) % 1000000,
         start_ts: s.start,
         label: dt.toLocaleString("en-US", {
           weekday: "short", month: "short", day: "numeric",
