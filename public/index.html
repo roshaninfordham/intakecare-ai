@@ -102,6 +102,14 @@
   .badge.confirming { color: var(--blue); background: rgba(108,159,255,0.12); }
   .badge.complete { color: var(--teal); background: var(--teal-dim); }
   .badge.handoff { color: var(--coral); background: var(--coral-dim); }
+  .badge.scheduling { color: #C9A4FF; background: rgba(168,124,255,0.14); }
+  .appt {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    border-left: 3px solid var(--teal);
+  }
+  .appt .when { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: var(--teal); }
+  .appt .who { font-size: 12px; color: var(--ink); margin-top: 3px; }
+  .appt .where { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .badge.greeting { color: var(--muted); background: rgba(129,148,173,0.12); }
   .progress-track { height: 3px; background: var(--line); border-radius: 2px; margin-top: 10px; overflow: hidden; }
   .progress-fill { height: 100%; background: var(--teal); border-radius: 2px; transition: width 0.6s cubic-bezier(.22,1,.36,1); }
@@ -160,6 +168,7 @@
   <button id="call-btn" onclick="toggleCall()">📞 Call Cara</button>
   <div class="stats">
     <div class="stat"><div class="v" id="stat-active">0</div><div class="l">Active</div></div>
+    <div class="stat"><div class="v" id="stat-booked">0</div><div class="l">Booked</div></div>
     <div class="stat"><div class="v" id="stat-complete">0</div><div class="l">Completed</div></div>
     <div class="stat"><div class="v" id="stat-guardrails">0</div><div class="l">Guardrails</div></div>
     <div class="stat"><div class="v mono" id="stat-clock">--:--</div><div class="l">24/7 · All languages</div></div>
@@ -186,6 +195,10 @@
   </div>
 
   <div class="col">
+    <div class="panel">
+      <h2>Booked Appointments</h2>
+      <div id="appointments"><div class="empty">Cara books the first visit in-conversation</div></div>
+    </div>
     <div class="panel">
       <h2>Guardrails &amp; System Events</h2>
       <div class="events" id="events"><div class="empty">No events yet</div></div>
@@ -223,7 +236,10 @@ async function poll(){
     }
     const events = await (await fetch("/api/events")).json();
     renderEvents(events);
+    const appts = await (await fetch("/api/appointments")).json();
+    renderAppointments(appts);
     document.getElementById("stat-active").textContent = sessions.filter(s => s.status !== "complete").length;
+    document.getElementById("stat-booked").textContent = appts.length;
     document.getElementById("stat-complete").textContent = sessions.filter(s => s.status === "complete").length;
     document.getElementById("stat-guardrails").textContent = events.filter(e => e.kind === "guardrail" || e.kind === "handoff").length;
   } catch(e) { /* keep polling */ }
@@ -273,6 +289,17 @@ function renderDetail(d){
   pk.innerHTML = s.packet
     ? "<pre>" + esc(JSON.stringify(s.packet, null, 2)) + "</pre>"
     : '<div class="empty">Generated automatically when intake completes</div>';
+}
+
+function renderAppointments(appts){
+  const el = document.getElementById("appointments");
+  if (!appts.length) return;
+  el.innerHTML = appts.map(a => `
+    <div class="appt">
+      <div class="when">📅 ${esc(a.label)}</div>
+      <div class="who">${esc(a.patient_name)} · ${esc(a.clinician)} · ${a.kind === "soc_visit" ? "home visit" : "clinic visit"}</div>
+      <div class="where">${esc(a.location)} · ref ${esc(a.ref_id ?? "")}</div>
+    </div>`).join("");
 }
 
 function renderEvents(events){

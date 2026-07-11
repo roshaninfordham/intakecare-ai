@@ -35,7 +35,7 @@ export async function gatherTurn(env: Env, form: FormData): Promise<Response> {
   if (result.decision.send_text_request) {
     await textCallerForDoc(env, from, result.decision.send_text_request);
   }
-  const done = result.decision.handoff || result.completedNow;
+  const done = result.decision.handoff || result.bookedNow;
   const say = `<Say voice="Google.en-US-Chirp3-HD-Aoede">${escapeXml(result.reply)}</Say>`;
   return twimlRaw(
     done
@@ -131,7 +131,7 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
               }, 3000);
             }
           }
-          if (result.decision.handoff || result.completedNow) {
+          if (result.decision.handoff || result.bookedNow) {
             setTimeout(() => {
               try { server.send(JSON.stringify({ type: "end" })); } catch {}
             }, 8000);

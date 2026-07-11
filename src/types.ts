@@ -25,8 +25,18 @@ export type SessionStatus =
   | "greeting"
   | "collecting"
   | "confirming"
+  | "scheduling"
   | "complete"
   | "handoff";
+
+export interface Slot {
+  id: number;
+  start_ts: string;
+  label: string;
+  kind: string;
+  clinician: string;
+  location: string;
+}
 
 export interface IntakeFields {
   patient_name?: string;
@@ -92,4 +102,5 @@ export interface AgentDecision {
   guardrail: string | null;
   language: string;
   send_text_request: string | null; // voice: content to text the caller (doc request)
+  booked_slot_id: number | null; // scheduling: the slot the user chose
 }

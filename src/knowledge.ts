@@ -44,6 +44,11 @@ export const KNOWLEDGE_DOCS: { title: string; chunk: string }[] = [
       "Caregivers are matched on skill requirements, language, and location. Current roster highlights (synthetic demo data): Maria G. (RN, Spanish/English, Queens), Wei L. (RN, Mandarin/English, Manhattan), Priya S. (PT, Hindi/English, Brooklyn), Jean-Paul D. (HHA, Haitian Creole/French/English, Brooklyn), Olga K. (RN wound care, Russian/English, Staten Island).",
   },
   {
+    title: "Scheduling and the first visit",
+    chunk:
+      "The intake assistant books the start-of-care visit directly during the conversation — no callback needed. Urgent referrals (e.g. hospital discharge within 48 hours) get the earliest opening. The first visit is a nurse home visit (about 60-90 minutes: assessment, vitals, care plan) unless a clinic follow-up is ordered. Patients should have their insurance card and a list of current medications ready. Rescheduling is free anytime by message or phone.",
+  },
+  {
     title: "Privacy and data handling",
     chunk:
       "Intake conversations are encrypted in transit. This demo runs entirely on synthetic data — no real patient information is collected or stored. In production, CareLine follows HIPAA minimum-necessary standards, and callers may request a human coordinator at any time.",

@@ -19,7 +19,9 @@ A multimodal AI intake coordinator that turns healthcare's slowest step — pati
 - **Call and talk** to Cara live (Twilio ConversationRelay: ~1s round trips, natural ElevenLabs voice, barge-in interruption)
 - **Cross-channel continuity**: mid-call, Cara asks for the insurance card over WhatsApp; the photo lands in the *same* session and she confirms it *on the call*
 
-Every conversation is grounded in the agency's policy corpus via RAG (no invented policy), every extraction lands in a **typed JSON schema** (no hallucinated fields), completion requires a **read-back confirmation**, and the output is a generated start-of-care packet + live ops dashboard + confirmation message.
+Every conversation is grounded in the agency's policy corpus via RAG (no invented policy), every extraction lands in a **typed JSON schema** (no hallucinated fields), and completion requires a **read-back confirmation**.
+
+**And the loop actually closes.** Where today's intake ends with "someone will call you within 24–48 hours," Cara immediately offers real openings from the clinic calendar and **books the start-of-care visit in the same conversation** — urgent discharges get the earliest slot. Output: booked appointment + start-of-care packet + live ops dashboard + confirmation message. Referral-to-scheduled-visit, which takes 3–7 days of phone tag today, happens in one conversation. An outbound-call endpoint is wired so Cara can also *place* the scheduling call herself (pending Twilio number provisioning).
 
 **Guardrails are first-class**: the agent hard-refuses clinical/medication questions (visible 🛡️ events on the dashboard), directs emergencies to 911 with human handoff, and runs on 100% synthetic data.
 

@@ -81,9 +81,13 @@ async function processInbound(
     if (!userText.trim()) userText = "[empty message]";
     const result = await handleTurn(env, session, userText, channel, kind);
     const replies = [result.reply];
-    if (result.completedNow && result.refId) {
+    if (result.packetNow && result.refId) {
+      replies.push(`✅ Intake confirmed — reference ${result.refId}. Insurance verification has started.`);
+    }
+    if (result.bookedNow && result.appointment) {
+      const a = result.appointment;
       replies.push(
-        `✅ Intake complete — reference ${result.refId}. Our care coordinator will call you within 24 hours to schedule the first visit. You can reply here anytime.`
+        `📅 Booked: ${a.label} with ${a.clinician} (${a.kind === "soc_visit" ? "nurse home visit" : "clinic visit"}, ${a.location}). Reference ${result.refId ?? ""}. Please have the insurance card and a list of current medications ready. Reply here anytime to reschedule.`
       );
     }
     return replies;
@@ -146,7 +150,17 @@ app.get("/api/sessions/:id", async (c) => {
   const { results: evts } = await c.env.DB.prepare(
     "SELECT kind, detail, created_at FROM events WHERE session_id = ? ORDER BY id ASC LIMIT 200"
   ).bind(id).all();
-  return c.json({ session: rowToSession(row as any), messages: msgs, events: evts });
+  const { results: appts } = await c.env.DB.prepare(
+    "SELECT ref_id, patient_name, label, kind, clinician, location, created_at FROM appointments WHERE session_id = ? ORDER BY id DESC"
+  ).bind(id).all();
+  return c.json({ session: rowToSession(row as any), messages: msgs, events: evts, appointments: appts });
+});
+
+app.get("/api/appointments", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    "SELECT session_id, ref_id, patient_name, label, kind, clinician, location, created_at FROM appointments ORDER BY id DESC LIMIT 20"
+  ).all();
+  return c.json(results);
 });
 
 app.get("/api/events", async (c) => {
@@ -161,6 +175,34 @@ app.get("/api/events", async (c) => {
 // ---------------------------------------------------------------------------
 app.post("/admin/seed", async (c) => {
   if (c.req.header("x-admin-key") !== c.env.ADMIN_KEY) return c.text("nope", 401);
+
+  // clinic calendar: open slots over the next 3 days (synthetic)
+  await c.env.DB.prepare("DELETE FROM slots WHERE booked = 0").run();
+  const clinicians = [
+    ["Maria G., RN", "soc_visit", "patient's home"],
+    ["Wei L., RN", "soc_visit", "patient's home"],
+    ["Olga K., RN (wound care)", "soc_visit", "patient's home"],
+    ["Dr. Sarah Chen, Cardiology", "clinic_followup", "CareLine Partner Clinic, 200 W 57th St"],
+  ];
+  const hours = [9, 11, 14, 16];
+  let n = 0;
+  for (let day = 1; day <= 3; day++) {
+    for (const h of hours) {
+      // clinic-local (ET) slot times; store as naive local, label matches what the clinic sees
+      const dt = new Date(Date.now() + day * 86400000);
+      dt.setUTCHours(h + 4, 0, 0, 0); // ET (EDT) → UTC
+      const [clin, kind, loc] = clinicians[n % clinicians.length];
+      const label = dt.toLocaleString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit", timeZone: "America/New_York",
+      });
+      await c.env.DB.prepare(
+        "INSERT INTO slots (start_ts, label, kind, clinician, location) VALUES (?,?,?,?,?)"
+      ).bind(dt.toISOString(), label, kind, clin, loc).run();
+      n++;
+    }
+  }
+
   await c.env.DB.prepare("DELETE FROM knowledge").run();
   let embedded = 0;
   let vectors: number[][] | null = null;
@@ -176,7 +218,30 @@ app.post("/admin/seed", async (c) => {
       .run();
     if (vectors) embedded++;
   }
-  return c.json({ seeded: KNOWLEDGE_DOCS.length, embedded });
+  return c.json({ seeded: KNOWLEDGE_DOCS.length, embedded, slots: n });
+});
+
+// Outbound proactive call (goes live once Twilio KYC/Trust Hub is approved + a number is owned)
+app.post("/admin/call", async (c) => {
+  if (c.req.header("x-admin-key") !== c.env.ADMIN_KEY) return c.text("nope", 401);
+  const phone = c.req.query("phone");
+  if (!phone) return c.text("phone query param required", 400);
+  if (!c.env.TWILIO_VOICE_FROM) {
+    return c.json({ error: "No Twilio voice number owned yet — complete Trust Hub KYC, buy a number, set TWILIO_VOICE_FROM." }, 409);
+  }
+  const host = new URL(c.req.url).host;
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${c.env.TWILIO_ACCOUNT_SID}/Calls.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(`${c.env.TWILIO_API_KEY_SID}:${c.env.TWILIO_API_KEY_SECRET}`),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: phone, From: c.env.TWILIO_VOICE_FROM, Url: `https://${host}/voice`, Method: "POST" }),
+    }
+  );
+  return c.json(await res.json() as any, res.ok ? 200 : 502);
 });
 
 app.post("/admin/reset", async (c) => {
@@ -186,6 +251,8 @@ app.post("/admin/reset", async (c) => {
   await c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(phone).run();
   await c.env.DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(phone).run();
   await c.env.DB.prepare("DELETE FROM events WHERE session_id = ?").bind(phone).run();
+  await c.env.DB.prepare("UPDATE slots SET booked = 0, booked_by = NULL WHERE booked_by = ?").bind(phone).run();
+  await c.env.DB.prepare("DELETE FROM appointments WHERE session_id = ?").bind(phone).run();
   return c.json({ reset: phone });
 });
 

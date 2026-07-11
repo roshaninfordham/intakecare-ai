@@ -23,7 +23,14 @@ One AI agent, one phone-number-keyed session, every channel:
 - ☎️ **Live voice call** — real-time agent via Twilio ConversationRelay (browser or PSTN)
 - 🔀 **Cross-channel magic** — mid-call, Cara texts you for the insurance card; the photo lands in the *same* session and she confirms it *on the call*
 
-Every answer is grounded in the agency's policy corpus (RAG), every field lands in a typed schema, every intake ends with a generated start-of-care packet, a live dashboard update, and a confirmation message.
+Every answer is grounded in the agency's policy corpus (RAG), every field lands in a typed schema — and the conversation doesn't end at "we'll call you back." **Cara closes the loop: the moment intake is confirmed, she offers real openings from the clinic calendar and books the first visit in the same conversation** — start-of-care packet, booked appointment, live dashboard update, and confirmation, all before the patient puts the phone down.
+
+```mermaid
+flowchart LR
+    R["Referral"] --> I["Intake<br/>(all channels, all languages)"] --> V["Verification<br/>(typed fields + read-back)"] --> S["Scheduling<br/>(real calendar slots)"] --> B["Booked visit<br/>+ SOC packet + dashboards"]
+    style B fill:#dcfce7,stroke:#16a34a
+```
+Today that pipeline takes **3–7 days of phone tag**. CareLine does it in one conversation.
 
 ```mermaid
 flowchart LR
@@ -80,8 +87,9 @@ stateDiagram-v2
     collecting --> collecting: field captured, more missing
     collecting --> confirming: all required fields present
     confirming --> collecting: correction
-    confirming --> complete: user confirms read-back
-    complete --> [*]: packet + confirmation sent
+    confirming --> scheduling: user confirms read-back → SOC packet generated
+    scheduling --> complete: visit booked from live calendar
+    complete --> [*]: appointment + packet + confirmation sent
     collecting --> handoff: clinical question / emergency
     confirming --> handoff
     handoff --> [*]: human coordinator + transcript
