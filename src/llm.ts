@@ -87,8 +87,21 @@ export function parseJsonLoose<T>(text: string): T {
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
-/** Transcribe audio (any language) with Groq Whisper. */
+/** Transcribe audio (any language): Groq Whisper primary, Deepgram nova-3 fallback. */
 export async function transcribeAudio(
+  env: Env,
+  audio: ArrayBuffer,
+  contentType: string
+): Promise<string> {
+  try {
+    return await transcribeGroq(env, audio, contentType);
+  } catch (e) {
+    console.error("groq whisper failed, falling back to deepgram:", e);
+    return await transcribeDeepgram(env, audio, contentType);
+  }
+}
+
+async function transcribeGroq(
   env: Env,
   audio: ArrayBuffer,
   contentType: string
@@ -112,6 +125,27 @@ export async function transcribeAudio(
   if (!res.ok) throw new Error(`whisper ${res.status}: ${await res.text()}`);
   const data = (await res.json()) as any;
   return data.text as string;
+}
+
+async function transcribeDeepgram(
+  env: Env,
+  audio: ArrayBuffer,
+  contentType: string
+): Promise<string> {
+  const res = await fetch(
+    "https://api.deepgram.com/v1/listen?model=nova-3&detect_language=true&smart_format=true",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${env.DEEPGRAM_API_KEY}`,
+        "Content-Type": contentType,
+      },
+      body: audio,
+    }
+  );
+  if (!res.ok) throw new Error(`deepgram ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as any;
+  return (data.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "") as string;
 }
 
 export interface MediaExtraction {

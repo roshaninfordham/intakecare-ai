@@ -30,7 +30,8 @@ Every conversation is grounded in the agency's policy corpus via RAG (no invente
 | **Telephony (required)** | **Twilio** | WhatsApp Sandbox for inbound multimodal chat (TwiML replies); **ConversationRelay** for the real-time voice agent (Deepgram STT + ElevenLabs TTS + interruption handling) over a WebSocket to our Worker; **Voice JS SDK + TwiML App** for in-browser calls from the dashboard; REST API for cross-channel messages |
 | Compute | **Cloudflare Workers** (Hono/TypeScript) | Orchestrator, intake state machine, WebSocket voice handler, dashboard hosting — all on one edge Worker |
 | Conversation brain | **Groq llama-3.3-70b** | ~300ms grounded JSON-mode turns; OpenRouter free tier as automatic fallback |
-| Voice notes | **Groq whisper-large-v3-turbo** | Any-language transcription |
+| Voice notes | **Groq whisper-large-v3-turbo** + **Deepgram nova-3** fallback | Any-language transcription with automatic redundancy |
+| Live-call STT | **Deepgram nova-3 multilingual** | Real-time speech recognition inside ConversationRelay (`multi` auto-detection) |
 | Image understanding | **Groq llama-4-scout** vision | Insurance cards, referral photos |
 | PDF understanding | **Cloudflare Workers AI** toMarkdown | Referral/discharge PDFs → text → structured extraction |
 | RAG | **Workers AI bge-base-en-v1.5** embeddings | Policy corpus in D1, cosine retrieval in-Worker |

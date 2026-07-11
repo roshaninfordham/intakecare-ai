@@ -15,6 +15,7 @@ export interface Env {
   GROQ_API_KEY: string;
   OPENROUTER_API_KEY: string;
   ELEVENLABS_API_KEY?: string;
+  DEEPGRAM_API_KEY: string;
   ADMIN_KEY: string;
 }
 

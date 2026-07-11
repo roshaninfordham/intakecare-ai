@@ -126,7 +126,8 @@ Every guardrail firing is visible in the dashboard's event log — judges can wa
 | Telephony + messaging | **Twilio**: WhatsApp Sandbox, Voice + **ConversationRelay** (ElevenLabs TTS, Deepgram STT), Voice JS SDK + TwiML App for browser calls |
 | Compute + hosting | **Cloudflare Workers** (Hono) + static assets |
 | Brain | **Groq** llama-3.3-70b-versatile (~300ms turns) |
-| Voice notes | **Groq** whisper-large-v3-turbo |
+| Voice notes | **Groq** whisper-large-v3-turbo, **Deepgram nova-3** fallback (auto language detection) |
+| Live-call STT | **Deepgram nova-3** multilingual via ConversationRelay |
 | Image reading | **Groq** llama-4-scout vision |
 | PDF reading | **Cloudflare Workers AI** toMarkdown |
 | RAG | **Workers AI** bge-base-en-v1.5 embeddings + cosine in-Worker over D1 chunks |
