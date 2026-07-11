@@ -53,6 +53,13 @@ export async function fetchTwilioMedia(
   return { data: await res.arrayBuffer(), contentType };
 }
 
+export function twimlMessages(bodies: string[]): Response {
+  const inner = bodies.map((b) => `<Message>${escapeXml(b)}</Message>`).join("");
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`, {
+    headers: { "Content-Type": "text/xml" },
+  });
+}
+
 export function twimlMessage(body?: string): Response {
   const inner = body ? `<Message>${escapeXml(body)}</Message>` : "";
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`, {

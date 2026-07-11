@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Channel, Env } from "./types";
-import { fetchTwilioMedia, normalizePhone, sendMessage, twimlMessage } from "./twilio";
+import { fetchTwilioMedia, normalizePhone, sendMessage, twimlMessage, twimlMessages } from "./twilio";
 import { getOrCreateSession, logEvent, rowToSession } from "./db";
 import { handleTurn } from "./agent";
 import { extractFromImage, extractFromPdf, transcribeAudio } from "./llm";
@@ -27,10 +27,21 @@ app.post("/webhook/message", async (c) => {
   const replyTo = from;
   const replyFrom = channel === "whatsapp" ? c.env.TWILIO_WHATSAPP_FROM : (c.env.TWILIO_VOICE_FROM ?? from);
 
-  c.executionCtx.waitUntil(
-    processInbound(c.env, phone, channel, body, numMedia > 0 ? mediaUrl : null, mediaType, replyTo, replyFrom)
-  );
-  return twimlMessage(); // empty ack
+  // Reply synchronously via TwiML (works even before Twilio KYC approval).
+  // If processing outruns the webhook budget, ack now and finish via REST.
+  const work = processInbound(c.env, phone, channel, body, numMedia > 0 ? mediaUrl : null, mediaType);
+  const timeout = new Promise<null>((res) => setTimeout(() => res(null), 12000));
+  const result = await Promise.race([work, timeout]);
+
+  if (result === null) {
+    c.executionCtx.waitUntil(
+      work.then(async (msgs) => {
+        for (const m of msgs) await sendMessage(c.env, replyTo, replyFrom, m);
+      })
+    );
+    return twimlMessage("📄 One sec — still reading that…");
+  }
+  return twimlMessages(result);
 });
 
 async function processInbound(
@@ -39,22 +50,16 @@ async function processInbound(
   channel: Channel,
   body: string,
   mediaUrl: string | null,
-  mediaType: string,
-  replyTo: string,
-  replyFrom: string
-): Promise<void> {
+  mediaType: string
+): Promise<string[]> {
   try {
     const session = await getOrCreateSession(env, phone, channel);
     let userText = body;
     let kind = "text";
 
     if (mediaUrl) {
-      const isAudio = mediaType.startsWith("audio");
-      const ack = isAudio ? "🎧 Listening to your voice note…" : "📄 Give me one sec to read that…";
-      await sendMessage(env, replyTo, replyFrom, ack);
-
       const { data, contentType } = await fetchTwilioMedia(env, mediaUrl);
-      if (isAudio) {
+      if (mediaType.startsWith("audio") || contentType.startsWith("audio")) {
         kind = "audio";
         userText = await transcribeAudio(env, data, contentType);
         await logEvent(env, phone, "media", `Received voice note → transcribed (${userText.length} chars)`);
@@ -75,20 +80,17 @@ async function processInbound(
 
     if (!userText.trim()) userText = "[empty message]";
     const result = await handleTurn(env, session, userText, channel, kind);
-    await sendMessage(env, replyTo, replyFrom, result.reply);
-
+    const replies = [result.reply];
     if (result.completedNow && result.refId) {
-      await sendMessage(
-        env,
-        replyTo,
-        replyFrom,
+      replies.push(
         `✅ Intake complete — reference ${result.refId}. Our care coordinator will call you within 24 hours to schedule the first visit. You can reply here anytime.`
       );
     }
+    return replies;
   } catch (e) {
     console.error("processInbound error:", e);
     await logEvent(env, phone, "system", `error: ${String(e).slice(0, 200)}`);
-    await sendMessage(env, replyTo, replyFrom, "Sorry — I hit a snag processing that. Could you try again?");
+    return ["Sorry — I hit a snag processing that. Could you try again?"];
   }
 }
 
