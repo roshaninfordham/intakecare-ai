@@ -89,6 +89,7 @@ export async function handleTurn(
       language: session.language,
       send_text_request: null,
       booked_slot_id: null,
+      request_call: false,
     };
   }
 
@@ -126,7 +127,7 @@ export async function handleTurn(
       // instant automated eligibility check — the work a human coordinator queues for "1 business day"
       const t0 = Date.now();
       eligibility = verifyEligibility(session.fields);
-      session.packet = await generatePacket(env, session, refId);
+      session.packet = buildPacket(session.fields, refId);
       session.packet.eligibility = eligibility as unknown as Record<string, unknown>;
       await logEvent(env, session.id, "packet", `Start-of-care packet ${refId} generated`);
       await logEvent(
@@ -242,20 +243,39 @@ function makeRefId(phone: string): string {
   return `CL-${tail}-${rand}`;
 }
 
-async function generatePacket(
-  env: Env,
-  session: Session,
-  refId: string
-): Promise<Record<string, unknown>> {
-  try {
-    const [raw] = await chatWithFallback(
-      env,
-      [{ role: "user", content: packetPrompt(session.fields, refId) }],
-      { json: true }
-    );
-    return parseJsonLoose<Record<string, unknown>>(raw);
-  } catch (e) {
-    console.error("packet generation failed:", e);
-    return { reference_id: refId, patient: session.fields, generated: "fallback" };
-  }
+/**
+ * Deterministic SOC packet — built from the typed fields, never an LLM.
+ * Zero hallucination risk; recommended services are simple clinical keyword rules.
+ */
+function buildPacket(fields: Session["fields"], refId: string): Record<string, unknown> {
+  const dx = (fields.primary_diagnosis ?? "").toLowerCase();
+  const urgency = /urgent|48 hour|asap|immediate/i.test(fields.urgency ?? "") ? "urgent" : "routine";
+  const services = new Set<string>(["skilled nursing"]);
+  if (/heart|chf|cardiac|hypertension/.test(dx)) services.add("cardiac monitoring & daily weights");
+  if (/diabet/.test(dx)) services.add("diabetes management education");
+  if (/wound|ulcer|surgical|post-op/.test(dx)) services.add("wound care");
+  if (/stroke|fall|fracture|hip|knee|decondition|mobility/.test(dx)) services.add("physical therapy evaluation");
+  if (/copd|respiratory|pneumonia|oxygen/.test(dx)) services.add("respiratory monitoring");
+  return {
+    reference_id: refId,
+    patient: {
+      name: fields.patient_name ?? null,
+      date_of_birth: fields.date_of_birth ?? null,
+      address: fields.address ?? null,
+      callback_phone: fields.callback_phone ?? null,
+    },
+    insurance: {
+      payer: fields.insurance_payer ?? null,
+      member_id: fields.insurance_member_id ?? null,
+    },
+    clinical: {
+      primary_diagnosis: fields.primary_diagnosis ?? null,
+      physician: fields.physician_name ?? null,
+      urgency,
+    },
+    referral: { source: fields.referral_source ?? null },
+    recommended_services: [...services].slice(0, 4),
+    next_steps: ["Insurance eligibility verified", "Care coordinator assigned", "Start-of-care visit scheduled"],
+    notes: fields.notes ?? fields.urgency ?? "",
+  };
 }

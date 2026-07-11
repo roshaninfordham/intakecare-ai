@@ -1,25 +1,43 @@
 import { Env } from "./types";
-import { getOrCreateSession, logEvent } from "./db";
+import { addMessage, getOrCreateSession, logEvent, saveSession } from "./db";
 import { handleTurn } from "./agent";
 import { escapeXml, sendMessage, twimlRaw } from "./twilio";
 
+/** BCP-47 tags for the languages configured in the TwiML below (must stay in sync). */
+const LANG_TAGS: Record<string, string> = {
+  en: "en-US",
+  es: "es-US",
+  hi: "hi-IN",
+  fr: "fr-FR",
+  pt: "pt-BR",
+};
+
+const ELEVENLABS_VOICE = "21m00Tcm4TlvDq8ikWAM";
+
+function greetingText(env: Env): string {
+  return `Hi, you've reached ${env.ORG_NAME}. This is ${env.AGENT_NAME}. I can get care started for you or a loved one in a couple of minutes — who am I helping today?`;
+}
+
 /**
  * TwiML for inbound calls — opens a ConversationRelay WebSocket back to this
- * Worker. Twilio handles STT (Deepgram) + TTS (ElevenLabs); we handle the brain.
+ * Worker. Deepgram nova-3 "multi" auto-detects the caller's language; each
+ * reply is tagged with its language so ElevenLabs speaks it natively.
  */
 export function voiceTwiml(env: Env, host: string, mode: string | null, caller: string): Response {
   if (mode === "gather") return gatherTwiml(env, true);
-  const greeting = `Hi! You've reached ${env.ORG_NAME}. I'm ${env.AGENT_NAME}, the intake assistant. I can get care started for you or a loved one in about two minutes. Who do we have the pleasure of helping today?`;
   const wsUrl = `wss://${host}/relay?caller=${encodeURIComponent(caller)}`;
+  const langs = Object.values(LANG_TAGS)
+    .map((code) => `<Language code="${code}" ttsProvider="ElevenLabs" voice="${ELEVENLABS_VOICE}"/>`)
+    .join("");
   return twimlRaw(
-    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greeting)}" ttsProvider="ElevenLabs" voice="21m00Tcm4TlvDq8ikWAM" transcriptionProvider="Deepgram" speechModel="nova-3-general" transcriptionLanguage="multi" interruptible="speech" /></Connect></Response>`
+    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greetingText(env))}" ttsProvider="ElevenLabs" voice="${ELEVENLABS_VOICE}" transcriptionProvider="Deepgram" speechModel="nova-3-general" transcriptionLanguage="multi" interruptible="any" reportInputDuringAgentSpeech="none">${langs}</ConversationRelay></Connect></Response>`
   );
 }
 
 /** Fallback voice mode using plain <Gather> — works on any Twilio account. */
 export function gatherTwiml(env: Env, greet: boolean): Response {
   const greeting = greet
-    ? `<Say voice="Google.en-US-Chirp3-HD-Aoede">Hi! You've reached ${escapeXml(env.ORG_NAME)}. I'm ${escapeXml(env.AGENT_NAME)}, the intake assistant. Who am I helping today?</Say>`
+    ? `<Say voice="Google.en-US-Chirp3-HD-Aoede">${escapeXml(greetingText(env))}</Say>`
     : "";
   return twimlRaw(
     `<Response>${greeting}<Gather input="speech" action="/gather-turn" method="POST" speechTimeout="auto" language="en-US"/><Redirect method="POST">/voice?mode=gather&amp;greet=0</Redirect></Response>`
@@ -66,11 +84,30 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
   const typingSound = `https://${reqUrl.host}/demo/typing.wav`;
   let callerPhone = reqUrl.searchParams.get("caller") || "unknown";
   let lastEventId = 0;
+  let currentLang = "en-US";
   let docPollTimer: ReturnType<typeof setInterval> | null = null;
   let processing = false;
 
-  const speak = (text: string) => {
-    server.send(JSON.stringify({ type: "text", token: text, last: true }));
+  const speak = (text: string, langCode?: string) => {
+    const lang = langCode && Object.values(LANG_TAGS).includes(langCode) ? langCode : currentLang;
+    server.send(JSON.stringify({ type: "text", token: text, last: true, lang }));
+  };
+
+  const runTurn = async (input: string) => {
+    server.send(JSON.stringify({ type: "play", source: typingSound, loop: 1, preemptible: true, interruptible: true }));
+    const session = await getOrCreateSession(env, callerPhone, "voice");
+    const result = await handleTurn(env, session, input, "voice", "call");
+    const lang = LANG_TAGS[result.decision.language] ?? currentLang;
+    currentLang = lang;
+    speak(result.reply, lang);
+    if (result.decision.send_text_request) {
+      await textCallerForDoc(env, callerPhone, result.decision.send_text_request);
+    }
+    if (result.decision.handoff || result.bookedNow) {
+      setTimeout(() => {
+        try { server.send(JSON.stringify({ type: "end" })); } catch {}
+      }, 10000);
+    }
   };
 
   server.addEventListener("message", (evt) => {
@@ -83,19 +120,42 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
       }
 
       if (msg.type === "setup") {
-        // prefer a real phone number: query param (browser calls pass it) beats client: identities
         if ((callerPhone === "unknown" || !callerPhone.startsWith("+")) && msg.from?.startsWith("+")) {
           callerPhone = msg.from;
         }
         if (callerPhone === "unknown") callerPhone = msg.from ?? "unknown";
         const session = await getOrCreateSession(env, callerPhone, "voice");
         session.last_channel = "voice";
+        session.awaiting_doc = 1; // any doc sent over WhatsApp during the call gets acknowledged on the call
+        await saveSession(env, session);
+        // record the spoken greeting so the agent never re-introduces itself
+        await addMessage(env, callerPhone, "agent", "voice", "text", greetingText(env));
         await logEvent(env, callerPhone, "system", `Voice call connected (${msg.callSid ?? "?"})`);
-        // remember current max event id so the doc-poller only sees new media
         const row = await env.DB.prepare(
           "SELECT COALESCE(MAX(id),0) AS m FROM events WHERE session_id = ?"
         ).bind(callerPhone).first();
         lastEventId = Number((row as any)?.m ?? 0);
+
+        // watch for documents arriving on WhatsApp for the whole call
+        docPollTimer = setInterval(() => {
+          void (async () => {
+            if (processing) return;
+            const row2 = await env.DB.prepare(
+              "SELECT id FROM events WHERE session_id = ? AND kind = 'media' AND id > ? AND detail LIKE 'Received%' ORDER BY id DESC LIMIT 1"
+            ).bind(callerPhone, lastEventId).first();
+            if (row2) {
+              lastEventId = Number((row2 as any).id);
+              processing = true;
+              try {
+                await runTurn(
+                  "[system note: the caller's document just arrived by WhatsApp and its fields are merged. In ONE short sentence, acknowledge it naturally, mention one detail you captured, then ask the next missing item — or move to scheduling if nothing is missing.]"
+                );
+              } finally {
+                processing = false;
+              }
+            }
+          })();
+        }, 2500);
         return;
       }
 
@@ -103,46 +163,10 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
         if (processing) return;
         processing = true;
         try {
-          // soft keyboard sound while Cara "notes it down" — masks LLM latency, feels human
-          server.send(JSON.stringify({ type: "play", source: typingSound, loop: 1, preemptible: true, interruptible: true }));
-          const session = await getOrCreateSession(env, callerPhone, "voice");
-          const result = await handleTurn(env, session, msg.voicePrompt, "voice", "call");
-          speak(result.reply);
-
-          if (result.decision.send_text_request) {
-            await textCallerForDoc(env, callerPhone, result.decision.send_text_request);
-            // poll for the doc arriving via WhatsApp while the call continues
-            if (!docPollTimer) {
-              docPollTimer = setInterval(() => {
-                void (async () => {
-                  const row = await env.DB.prepare(
-                    "SELECT id, detail FROM events WHERE session_id = ? AND kind = 'media' AND id > ? AND detail LIKE 'Received%' ORDER BY id DESC LIMIT 1"
-                  ).bind(callerPhone, lastEventId).first();
-                  if (row) {
-                    lastEventId = Number((row as any).id);
-                    if (docPollTimer) { clearInterval(docPollTimer); docPollTimer = null; }
-                    const session2 = await getOrCreateSession(env, callerPhone, "voice");
-                    const r2 = await handleTurn(
-                      env,
-                      session2,
-                      "[system note: the document the caller just sent by text has been processed and its fields merged. Acknowledge it on the call, mention one detail you captured, and continue with the next missing item.]",
-                      "voice",
-                      "call"
-                    );
-                    speak(r2.reply);
-                  }
-                })();
-              }, 3000);
-            }
-          }
-          if (result.decision.handoff || result.bookedNow) {
-            setTimeout(() => {
-              try { server.send(JSON.stringify({ type: "end" })); } catch {}
-            }, 8000);
-          }
+          await runTurn(msg.voicePrompt);
         } catch (e) {
           console.error("relay turn error:", e);
-          speak("I'm sorry, I had trouble with that. Could you say it again?");
+          speak("Sorry, I missed that — could you say it once more?");
         } finally {
           processing = false;
         }
@@ -150,13 +174,18 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
       }
 
       if (msg.type === "error") {
-        console.error("relay error:", msg);
+        console.error("relay error:", JSON.stringify(msg).slice(0, 300));
       }
     })();
   });
 
   server.addEventListener("close", () => {
     if (docPollTimer) clearInterval(docPollTimer);
+    void (async () => {
+      const session = await getOrCreateSession(env, callerPhone, "voice");
+      session.awaiting_doc = 0;
+      await saveSession(env, session);
+    })();
   });
 
   return new Response(null, { status: 101, webSocket: client });

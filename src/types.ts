@@ -105,4 +105,5 @@ export interface AgentDecision {
   language: string;
   send_text_request: string | null; // voice: content to text the caller (doc request)
   booked_slot_id: number | null; // scheduling: the slot the user chose
+  request_call: boolean; // user asked to be called on the phone
 }

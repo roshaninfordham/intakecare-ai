@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { Channel, Env } from "./types";
 import { fetchTwilioMedia, normalizePhone, sendMessage, twimlMessage, twimlMessages } from "./twilio";
-import { getOrCreateSession, logEvent, rowToSession } from "./db";
+import { addMessage, getOrCreateSession, logEvent, rowToSession, saveSession } from "./db";
 import { handleTurn } from "./agent";
 import { extractFromImage, extractFromPdf, transcribeAudio } from "./llm";
 import { embed } from "./rag";
@@ -64,16 +64,22 @@ async function processInbound(
         kind = "audio";
         userText = await transcribeAudio(env, data, contentType);
         await logEvent(env, phone, "media", `Received voice note → transcribed (${userText.length} chars)`);
-      } else if (contentType.includes("pdf")) {
-        kind = "pdf";
-        const ex = await extractFromPdf(env, data);
+      } else if (contentType.includes("pdf") || contentType.startsWith("image")) {
+        kind = contentType.includes("pdf") ? "pdf" : "image";
+        const ex = kind === "pdf"
+          ? await extractFromPdf(env, data)
+          : await extractFromImage(env, data, contentType);
         userText = mediaNote(body, ex.summary, ex.extracted);
-        await logEvent(env, phone, "media", `Received PDF → ${ex.summary}`);
-      } else if (contentType.startsWith("image")) {
-        kind = "image";
-        const ex = await extractFromImage(env, data, contentType);
-        userText = mediaNote(body, ex.summary, ex.extracted);
-        await logEvent(env, phone, "media", `Received image → ${ex.summary}`);
+        // if a voice call is live, stay quiet on WhatsApp: merge silently,
+        // the call's doc-watcher acknowledges it out loud — no dueling agents
+        if (session.awaiting_doc === 1) {
+          mergeExtracted(session.fields, ex.extracted);
+          await addMessage(env, phone, "user", channel, kind, userText);
+          await saveSession(env, session);
+          await logEvent(env, phone, "media", `Received ${kind} → ${ex.summary}`);
+          return ["✓ Got it — I've added that to the record. Continuing on the call…"];
+        }
+        await logEvent(env, phone, "media", `Received ${kind} → ${ex.summary}`);
       } else {
         userText = body || "[unsupported attachment]";
       }
@@ -82,6 +88,10 @@ async function processInbound(
     if (!userText.trim()) userText = "[empty message]";
     const result = await handleTurn(env, session, userText, channel, kind);
     const replies = [result.reply];
+
+    if (result.decision.request_call) {
+      replies.push(await placeOutboundCall(env, phone));
+    }
     if (result.packetNow && result.refId) {
       replies.push(
         `✅ Intake confirmed — reference ${result.refId}.` +
@@ -100,6 +110,52 @@ async function processInbound(
     await logEvent(env, phone, "system", `error: ${String(e).slice(0, 200)}`);
     return ["Sorry — I hit a snag processing that. Could you try again?"];
   }
+}
+
+const MEDIA_FIELD_MAP: Record<string, string> = {
+  patient_name: "patient_name", name: "patient_name",
+  date_of_birth: "date_of_birth", dob: "date_of_birth",
+  address: "address", phone: "callback_phone", callback_phone: "callback_phone",
+  insurance_payer: "insurance_payer", payer: "insurance_payer",
+  insurance_member_id: "insurance_member_id", member_id: "insurance_member_id",
+  diagnosis: "primary_diagnosis", primary_diagnosis: "primary_diagnosis",
+  physician: "physician_name", physician_name: "physician_name",
+  referral_source: "referral_source", urgency: "urgency",
+};
+
+function mergeExtracted(fields: Record<string, string | undefined>, extracted: Record<string, string>): void {
+  for (const [k, v] of Object.entries(extracted ?? {})) {
+    const target = MEDIA_FIELD_MAP[k.toLowerCase()];
+    if (target && v && !fields[target]) fields[target] = String(v).trim();
+  }
+}
+
+async function placeOutboundCall(env: Env, phone: string): Promise<string> {
+  if (!env.TWILIO_VOICE_FROM) {
+    return "📞 Our outbound line is being provisioned — for now, tap “Call Cara” at https://careline-ai.rsusny.workers.dev and I'll answer instantly. Or we can keep going right here!";
+  }
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Calls.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(`${env.TWILIO_API_KEY_SID}:${env.TWILIO_API_KEY_SECRET}`),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        To: phone,
+        From: env.TWILIO_VOICE_FROM,
+        Url: "https://careline-ai.rsusny.workers.dev/voice",
+        Method: "POST",
+      }),
+    }
+  );
+  if (res.ok) {
+    await logEvent(env, phone, "system", "Outbound call placed to patient");
+    return "📞 Calling you now — pick up and we'll finish everything by voice.";
+  }
+  console.error("outbound call failed:", await res.text());
+  return "📞 I couldn't reach your line just now — tap “Call Cara” at https://careline-ai.rsusny.workers.dev or keep going here.";
 }
 
 function mediaNote(body: string, summary: string, extracted: Record<string, string>): string {

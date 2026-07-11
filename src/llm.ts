@@ -64,18 +64,54 @@ async function openrouterChat(
   return data.choices[0].message.content as string;
 }
 
-/** Primary chat with automatic Groq -> OpenRouter fallback. Returns [text, usedFallback]. */
+async function workersAiChat(env: Env, messages: ChatMessage[], model: string): Promise<string> {
+  const res = (await env.AI.run(model as any, {
+    messages: messages.map((m) => ({ role: m.role, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) })),
+    max_tokens: 1024,
+  })) as { response?: string };
+  if (!res?.response) throw new Error("workers-ai empty response");
+  return res.response;
+}
+
+/**
+ * Resilience chain: each entry has an INDEPENDENT rate-limit pool.
+ * Groq quotas are per-model; Workers AI is a separate provider entirely;
+ * OpenRouter free models rotate. One provider dying never kills a conversation.
+ */
+const BRAIN_CHAIN: { provider: "groq" | "workers-ai" | "openrouter"; model: string; json?: boolean }[] = [
+  { provider: "groq", model: GROQ_CHAT_MODEL, json: true },
+  { provider: "groq", model: "openai/gpt-oss-120b" },
+  { provider: "groq", model: "meta-llama/llama-4-scout-17b-16e-instruct" },
+  { provider: "workers-ai", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+  { provider: "openrouter", model: OPENROUTER_FALLBACK_MODEL },
+  { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
+];
+
+/** Primary chat with a 6-model fallback chain. Returns [text, servedByFallback]. */
 export async function chatWithFallback(
   env: Env,
   messages: ChatMessage[],
   opts: { json?: boolean; maxTokens?: number } = {}
 ): Promise<[string, boolean]> {
-  try {
-    return [await groqChat(env, messages, opts), false];
-  } catch (e) {
-    console.error("groq failed, falling back to openrouter:", e);
-    return [await openrouterChat(env, messages, opts), true];
+  let lastErr: unknown = null;
+  for (let i = 0; i < BRAIN_CHAIN.length; i++) {
+    const step = BRAIN_CHAIN[i];
+    try {
+      let text: string;
+      if (step.provider === "groq") {
+        text = await groqChat(env, messages, { model: step.model, json: step.json && opts.json, maxTokens: opts.maxTokens });
+      } else if (step.provider === "workers-ai") {
+        text = await workersAiChat(env, messages, step.model);
+      } else {
+        text = await openrouterChat(env, messages, { model: step.model, maxTokens: opts.maxTokens });
+      }
+      return [text, i > 0];
+    } catch (e) {
+      lastErr = e;
+      console.error(`brain chain step ${i} (${step.provider}/${step.model}) failed:`, String(e).slice(0, 200));
+    }
   }
+  throw lastErr;
 }
 
 export function parseJsonLoose<T>(text: string): T {
