@@ -132,7 +132,9 @@ function mergeExtracted(fields: Record<string, string | undefined>, extracted: R
 
 async function placeOutboundCall(env: Env, phone: string): Promise<string> {
   if (!env.TWILIO_VOICE_FROM) {
-    return "📞 Our outbound line is being provisioned — for now, tap “Call Cara” at https://careline-ai.rsusny.workers.dev and I'll answer instantly. Or we can keep going right here!";
+    // no PSTN number yet (Trust Hub pending) — ring them with a tap-to-answer WebRTC call
+    await logEvent(env, phone, "system", "Call requested — tap-to-answer link sent");
+    return `📞 Ringing you now — tap to answer:\nhttps://careline-ai.rsusny.workers.dev/call?me=${encodeURIComponent(phone)}\n(I'll pick up the moment you tap.)`;
   }
   const res = await fetch(
     `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Calls.json`,
