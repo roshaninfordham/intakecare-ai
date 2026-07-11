@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CareLine AI — Intake Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B1120;
+    --panel: #101A2E;
+    --panel-2: #0E1626;
+    --line: #1E2C45;
+    --ink: #E8EEF7;
+    --muted: #8194AD;
+    --teal: #2DD4BF;
+    --teal-dim: rgba(45, 212, 191, 0.12);
+    --amber: #F5B84D;
+    --amber-dim: rgba(245, 184, 77, 0.12);
+    --coral: #F0647A;
+    --coral-dim: rgba(240, 100, 122, 0.12);
+    --blue: #6C9FFF;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #101A2E 0%, #0B1120 100%);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .logo {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700; font-size: 18px; letter-spacing: -0.02em;
+  }
+  .logo span { color: var(--teal); }
+  .live-pill {
+    display: flex; align-items: center; gap: 7px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--teal); text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 4px 12px; border: 1px solid rgba(45,212,191,0.35); border-radius: 99px;
+    background: var(--teal-dim);
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(45,212,191,0.5);} 50% { opacity: .55; box-shadow: 0 0 0 5px rgba(45,212,191,0);} }
+  @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+  .stats { margin-left: auto; display: flex; gap: 28px; }
+  .stat { text-align: right; }
+  .stat .v { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+
+  .layout {
+    display: grid; grid-template-columns: 300px 1fr 340px;
+    gap: 16px; padding: 16px 24px; max-width: 1600px; margin: 0 auto;
+  }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .panel h2 {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted);
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel h2::before { content: ''; width: 8px; height: 2px; background: var(--teal); }
+
+  /* session list */
+  .session-card {
+    padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer;
+    transition: background 0.15s;
+  }
+  .session-card:hover { background: var(--panel-2); }
+  .session-card.active { background: var(--teal-dim); border-left: 2px solid var(--teal); padding-left: 14px; }
+  .session-card .phone { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
+  .session-card .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+  .badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .badge.collecting { color: var(--amber); background: var(--amber-dim); }
+  .badge.confirming { color: var(--blue); background: rgba(108,159,255,0.12); }
+  .badge.complete { color: var(--teal); background: var(--teal-dim); }
+  .badge.handoff { color: var(--coral); background: var(--coral-dim); }
+  .badge.greeting { color: var(--muted); background: rgba(129,148,173,0.12); }
+  .progress-track { height: 3px; background: var(--line); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--teal); border-radius: 2px; transition: width 0.6s cubic-bezier(.22,1,.36,1); }
+
+  /* intake record — the signature: fields light up as captured */
+  .record { padding: 16px; }
+  .record-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 700px) { .record-grid { grid-template-columns: 1fr; } }
+  .field {
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    background: var(--panel-2); transition: all 0.5s ease;
+  }
+  .field .fl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display:flex; align-items:center; gap:6px; }
+  .field .fv { font-family: 'IBM Plex Mono', monospace; font-size: 13px; margin-top: 5px; min-height: 18px; color: var(--muted); font-style: italic; }
+  .field.captured { border-color: rgba(45,212,191,0.4); background: linear-gradient(180deg, rgba(45,212,191,0.07), transparent); }
+  .field.captured .fv { color: var(--ink); font-style: normal; }
+  .field.captured .fl::after { content: '✓'; color: var(--teal); margin-left: auto; font-size: 11px; }
+  .field.flash { animation: capture 1.2s ease; }
+  @keyframes capture { 0% { background: rgba(45,212,191,0.3); } 100% { background: linear-gradient(180deg, rgba(45,212,191,0.07), transparent); } }
+
+  /* transcript */
+  .transcript { flex: 1; overflow-y: auto; max-height: 380px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
+  .msg.user { align-self: flex-end; background: #1B2A47; border: 1px solid #27395C; }
+  .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
+  .msg .tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display: block; margin-bottom: 3px; }
+  .msg .tag .k { color: var(--amber); }
+
+  /* events */
+  .events { flex: 1; overflow-y: auto; max-height: 300px; }
+  .event { display: flex; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .event .icon { flex-shrink: 0; width: 18px; text-align: center; }
+  .event .detail { color: var(--ink); line-height: 1.4; }
+  .event .t { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .event.guardrail .detail { color: var(--coral); }
+  .event.handoff .detail { color: var(--coral); }
+  .event.packet .detail { color: var(--teal); }
+
+  /* packet */
+  .packet-box { padding: 14px 16px; }
+  .packet-box pre {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6;
+    color: #A9F5E8; background: #0A1526; border: 1px solid rgba(45,212,191,0.25);
+    border-radius: 8px; padding: 14px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .empty { color: var(--muted); font-size: 12px; padding: 20px 16px; font-style: italic; }
+
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  footer { text-align: center; color: var(--muted); font-size: 11px; font-family: 'IBM Plex Mono', monospace; padding: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">CareLine<span>AI</span></div>
+  <div class="live-pill"><span class="live-dot"></span> Live Intake Monitor</div>
+  <div class="stats">
+    <div class="stat"><div class="v" id="stat-active">0</div><div class="l">Active</div></div>
+    <div class="stat"><div class="v" id="stat-complete">0</div><div class="l">Completed</div></div>
+    <div class="stat"><div class="v" id="stat-guardrails">0</div><div class="l">Guardrails</div></div>
+    <div class="stat"><div class="v mono" id="stat-clock">--:--</div><div class="l">24/7 · All languages</div></div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="col">
+    <div class="panel">
+      <h2>Sessions</h2>
+      <div id="session-list"><div class="empty">Waiting for the first message… text or call the CareLine number.</div></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <h2 id="record-title">Intake Record</h2>
+      <div class="record"><div class="record-grid" id="record-grid"></div></div>
+    </div>
+    <div class="panel">
+      <h2>Conversation <span id="chan-note" style="margin-left:auto;color:var(--muted);text-transform:none;letter-spacing:0"></span></h2>
+      <div class="transcript" id="transcript"><div class="empty">Select a session</div></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <h2>Guardrails &amp; System Events</h2>
+      <div class="events" id="events"><div class="empty">No events yet</div></div>
+    </div>
+    <div class="panel">
+      <h2>Start-of-Care Packet</h2>
+      <div class="packet-box" id="packet"><div class="empty">Generated automatically when intake completes</div></div>
+    </div>
+  </div>
+</div>
+<footer>synthetic demo data only · no PHI · groq llama-3.3-70b + whisper + scout vision · cloudflare workers + d1 · twilio voice + whatsapp</footer>
+
+<script>
+const FIELDS = [
+  ["patient_name","Patient Name"],["date_of_birth","Date of Birth"],
+  ["callback_phone","Callback Phone"],["address","Home Address"],
+  ["primary_diagnosis","Primary Diagnosis"],["insurance_payer","Insurance Payer"],
+  ["insurance_member_id","Member ID"],["referral_source","Referral Source"],
+];
+const ICONS = { guardrail:"🛡️", handoff:"🚨", media:"📎", llm_fallback:"🔀", packet:"📦", system:"⚙️" };
+let selected = null;
+let prevFields = {};
+
+function maskPhone(p){ return p.length > 6 ? p.slice(0,4) + "•••" + p.slice(-3) : p; }
+function esc(s){ const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+async function poll(){
+  try {
+    const sessions = await (await fetch("/api/sessions")).json();
+    renderSessions(sessions);
+    if (!selected && sessions.length) selected = sessions[0].id;
+    if (selected) {
+      const detail = await (await fetch("/api/sessions/" + encodeURIComponent(selected))).json();
+      if (!detail.error) renderDetail(detail);
+    }
+    const events = await (await fetch("/api/events")).json();
+    renderEvents(events);
+    document.getElementById("stat-active").textContent = sessions.filter(s => s.status !== "complete").length;
+    document.getElementById("stat-complete").textContent = sessions.filter(s => s.status === "complete").length;
+    document.getElementById("stat-guardrails").textContent = events.filter(e => e.kind === "guardrail" || e.kind === "handoff").length;
+  } catch(e) { /* keep polling */ }
+}
+
+function renderSessions(sessions){
+  const el = document.getElementById("session-list");
+  if (!sessions.length) return;
+  el.innerHTML = sessions.map(s => {
+    const captured = FIELDS.filter(([k]) => s.fields[k]).length;
+    const pct = Math.round(100 * captured / FIELDS.length);
+    return `<div class="session-card ${s.id === selected ? "active" : ""}" onclick="selected='${s.id}';prevFields={};poll()">
+      <div class="phone">${maskPhone(esc(s.id))}</div>
+      <div class="meta">
+        <span class="badge ${s.status}">${s.status}</span>
+        <span class="mono" style="font-size:11px;color:var(--muted)">${captured}/${FIELDS.length} · ${esc(s.last_channel)}</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+}
+
+function renderDetail(d){
+  const s = d.session;
+  document.getElementById("record-title").textContent = "Intake Record — " + maskPhone(s.id) + " (" + (s.language || "en").toUpperCase() + ")";
+  const grid = document.getElementById("record-grid");
+  grid.innerHTML = FIELDS.map(([k, label]) => {
+    const v = s.fields[k];
+    const isNew = v && prevFields[k] !== v && Object.keys(prevFields).length;
+    return `<div class="field ${v ? "captured" : ""} ${isNew ? "flash" : ""}">
+      <div class="fl">${label}</div>
+      <div class="fv">${v ? esc(v) : "awaiting…"}</div>
+    </div>`;
+  }).join("");
+  prevFields = { ...s.fields };
+
+  const tr = document.getElementById("transcript");
+  const atBottom = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 60;
+  tr.innerHTML = d.messages.map(m => `
+    <div class="msg ${m.role}">
+      <span class="tag">${m.role === "user" ? "caller" : "cara"} · <span class="k">${esc(m.kind)}</span> · ${esc(m.channel)}</span>
+      ${esc(m.content.length > 400 ? m.content.slice(0, 400) + "…" : m.content)}
+    </div>`).join("") || '<div class="empty">No messages yet</div>';
+  if (atBottom) tr.scrollTop = tr.scrollHeight;
+
+  const pk = document.getElementById("packet");
+  pk.innerHTML = s.packet
+    ? "<pre>" + esc(JSON.stringify(s.packet, null, 2)) + "</pre>"
+    : '<div class="empty">Generated automatically when intake completes</div>';
+}
+
+function renderEvents(events){
+  const el = document.getElementById("events");
+  if (!events.length) return;
+  el.innerHTML = events.map(e => `
+    <div class="event ${e.kind}">
+      <div class="icon">${ICONS[e.kind] ?? "•"}</div>
+      <div>
+        <div class="detail">${esc(e.detail)}</div>
+        <div class="t">${maskPhone(esc(e.session_id ?? ""))} · ${esc((e.created_at ?? "").slice(11, 19))} UTC</div>
+      </div>
+    </div>`).join("");
+}
+
+setInterval(() => {
+  const d = new Date();
+  document.getElementById("stat-clock").textContent =
+    String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}, 1000);
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

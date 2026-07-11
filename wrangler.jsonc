@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "careline-ai",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "careline-db",
+      "database_id": "5f4e7fee-8d3a-42cb-9526-7f2e237b54fd",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "TWILIO_WHATSAPP_FROM": "whatsapp:+14155238886",
+    "AGENT_NAME": "Cara",
+    "ORG_NAME": "CareLine Home Health"
+  }
+}

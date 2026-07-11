@@ -1,0 +1,21 @@
+{
+  "name": "careline-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CareLine AI — multimodal patient intake & care-coordination agent on WhatsApp + Voice (Twilio + Cloudflare)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply careline-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply careline-db --remote"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}
