@@ -7,7 +7,7 @@
 A start-of-care intake voice agent that turns a home-health referral into a booked visit — in one 90-second conversation, any language, 24/7, with zero human data entry.
 
 ## Elevator pitch
-Arya Health's Q4 roadmap literally names the goal: *"an Intake Agent to accelerate patient start of care."* We built it. CareLine attacks the ~25¢ of every post-acute dollar spent on non-clinical work by collapsing intake — the slow, competitive, English-only, business-hours step between a hospital discharge and a nurse in the home — into a single conversation on the patient's own phone, and it **books the start-of-care visit on the agency's real calendar before the call ends.**
+The most expensive step in home health isn't clinical — it's getting the patient *into* the system. CareLine attacks the ~25¢ of every post-acute dollar spent on non-clinical work by collapsing intake — the slow, competitive, English-only, business-hours step between a hospital discharge and a nurse in the home — into a single conversation on the patient's own phone, and it **books the start-of-care visit on the agency's real calendar before the call ends.**
 
 ---
 
@@ -15,10 +15,10 @@ Arya Health's Q4 roadmap literally names the goal: *"an Intake Agent to accelera
 
 | Metric | Figure | Source |
 |---|---|---|
-| Non-clinical share of every post-acute dollar | **~25¢** | Kunal Sarda, Arya Health (Oct 2025) |
+| Non-clinical share of every post-acute dollar | **~25¢** | Post-acute care industry commentary (2025) — *directional* |
 | US home healthcare market, 2024 → 2030 | **$162.3B → $284.3B** (9.8% CAGR) | Grand View Research |
 | CMS spend on freestanding home health agencies, 2022 | **$132.9B** | CMS National Health Expenditure Accounts |
-| US "distributed care" TAM (Arya's framing) | **~$400B**, ~**$200B** non-clinical admin payroll | Arya Health |
+| US "distributed care" TAM | **~$400B**, ~**$200B** non-clinical admin payroll | Industry estimate — *directional* |
 | SOC comprehensive assessment (incl. OASIS) deadline | **within 5 calendar days** of the SOC date | 42 CFR §484.55 |
 | Timely Initiation of Care — patient seen after referral | **within ~48 hours** | NQF #0526 (CMS Care Compare) |
 | National timely-initiation performance | **~96%** | CMS Care Compare |

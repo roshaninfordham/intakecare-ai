@@ -2,7 +2,7 @@
 
 **The start-of-care intake agent that turns a referral into a booked home-health visit — in one 90-second conversation, in any language, at any hour, with zero human data entry.**
 
-Built in one day at **AI Healthcare Hack NYC** (Arya Health × Twilio AI Startup Searchlight).
+Built in one day at **AI Healthcare Hack NYC** (Twilio AI Startup Searchlight).
 
 **Live demo:** https://careline-ai.rsusny.workers.dev · **Repo:** https://github.com/roshaninfordham/intakecare-ai
 
@@ -12,9 +12,9 @@ Built in one day at **AI Healthcare Hack NYC** (Arya Health × Twilio AI Startup
 
 ## Why this project
 
-Arya Health's own Q4 roadmap names the target out loud: *"an Intake Agent to accelerate patient start of care."* Their thesis is that **post-acute providers spend ~25¢ of every dollar on non-clinical work** — the phone tag, faxing, re-typing, and eligibility chasing that sits between a hospital discharge and a nurse actually walking into the patient's home.
+The single most expensive step in home health isn't clinical — it's getting the patient *into* the system. Post-acute providers spend **~25¢ of every dollar on non-clinical work**: the phone tag, faxing, re-typing, and eligibility chasing that sits between a hospital discharge and a nurse actually walking into the patient's home.
 
-**CareLine AI builds exactly that agent.** It takes the single most expensive, least clinical step in home health — intake — and collapses it from a multi-day, English-only, business-hours relay into one conversation the patient has on the channel already in their pocket. It doesn't stop at a summary; it **books the start-of-care visit on the agency's real calendar before the call ends.**
+**CareLine AI is a start-of-care intake agent that removes that step.** It collapses intake from a multi-day, English-only, business-hours relay into one conversation the patient has on the channel already in their pocket — and it doesn't stop at a summary; it **books the start-of-care visit on the agency's real calendar before the call ends.**
 
 ---
 
@@ -24,11 +24,11 @@ Home health is a large, fast-growing market whose margins are eaten by administr
 
 | Metric | Figure | Source |
 |---|---|---|
-| Non-clinical share of every post-acute dollar | **~25¢** | Kunal Sarda, Arya Health (Oct 2025) |
+| Non-clinical share of every post-acute dollar | **~25¢** | Post-acute care industry commentary (2025) — *directional* |
 | US home healthcare market, 2024 | **$162.3B** | Grand View Research |
 | …projected 2030 (9.8% CAGR) | **$284.3B** | Grand View Research |
 | CMS spend on freestanding home health agencies, 2022 | **$132.9B** | CMS National Health Expenditure Accounts |
-| US "distributed care" TAM (Arya's framing) | **~$400B**, of which **~$200B** is non-clinical admin payroll | Arya Health |
+| US "distributed care" TAM | **~$400B**, of which **~$200B** is non-clinical admin payroll | Industry estimate — *directional* |
 | Start-of-care comprehensive assessment (incl. OASIS) must be completed | **within 5 calendar days** of the SOC date | 42 CFR §484.55 |
 | Timely Initiation of Care — patient seen after referral | **within ~48 hours** | NQF #0526 (CMS Care Compare measure) |
 | National timely-initiation performance | **~96%** | CMS Care Compare |
