@@ -80,14 +80,18 @@ async function workersAiChat(env: Env, messages: ChatMessage[], model: string): 
  */
 const BRAIN_CHAIN: { provider: "groq" | "workers-ai" | "openrouter"; model: string; json?: boolean }[] = [
   { provider: "groq", model: GROQ_CHAT_MODEL, json: true },
-  { provider: "groq", model: "openai/gpt-oss-120b" },
-  { provider: "groq", model: "meta-llama/llama-4-scout-17b-16e-instruct" },
+  { provider: "groq", model: "openai/gpt-oss-120b", json: true },
+  { provider: "groq", model: "meta-llama/llama-4-scout-17b-16e-instruct", json: true },
   { provider: "workers-ai", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
   { provider: "openrouter", model: OPENROUTER_FALLBACK_MODEL },
   { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
 ];
 
-/** Primary chat with a 6-model fallback chain. Returns [text, servedByFallback]. */
+/**
+ * Primary chat with a 6-model fallback chain. When JSON is expected, each
+ * step's output is VALIDATED before being accepted — a model that returns
+ * garbage is treated exactly like a model that's down. Returns [text, servedByFallback].
+ */
 export async function chatWithFallback(
   env: Env,
   messages: ChatMessage[],
@@ -105,6 +109,7 @@ export async function chatWithFallback(
       } else {
         text = await openrouterChat(env, messages, { model: step.model, maxTokens: opts.maxTokens });
       }
+      if (opts.json) parseJsonLoose(text); // throws → try the next model
       return [text, i > 0];
     } catch (e) {
       lastErr = e;

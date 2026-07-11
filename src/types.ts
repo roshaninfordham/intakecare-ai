@@ -105,5 +105,7 @@ export interface AgentDecision {
   language: string;
   send_text_request: string | null; // voice: content to text the caller (doc request)
   booked_slot_id: number | null; // scheduling: the slot the user chose
+  booking_intent: "new" | "reschedule" | null; // new appointment vs moving the existing one
+  specialist: string | null; // routed clinician for a new concern (from the roster)
   request_call: boolean; // user asked to be called on the phone
 }

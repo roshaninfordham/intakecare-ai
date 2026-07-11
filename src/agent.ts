@@ -53,6 +53,12 @@ export async function handleTurn(
   }
 
   const existingAppt = await latestAppointment(env, session.id);
+  const { results: apptRows } = await env.DB.prepare(
+    "SELECT label, clinician, kind FROM appointments WHERE session_id = ? ORDER BY id DESC LIMIT 5"
+  ).bind(session.id).all();
+  const priorAppointments = (apptRows as any[]).map(
+    (a) => `${a.label} — ${a.clinician} (${a.kind === "soc_visit" ? "home visit" : "clinic visit"})`
+  );
 
   const system = agentSystemPrompt({
     agentName: env.AGENT_NAME,
@@ -62,6 +68,7 @@ export async function handleTurn(
     ragContext,
     slots,
     existingAppointment: existingAppt ? `${existingAppt.label} with ${existingAppt.clinician}` : null,
+    priorAppointments,
   });
 
   const messages = [
@@ -89,6 +96,8 @@ export async function handleTurn(
       language: session.language,
       send_text_request: null,
       booked_slot_id: null,
+      booking_intent: null,
+      specialist: null,
       request_call: false,
     };
   }
@@ -143,8 +152,9 @@ export async function handleTurn(
       const chosen = slots.find((s) => s.id === Number(decision.booked_slot_id));
       if (chosen) {
         const patientName = session.fields.patient_name ?? "CareLine patient";
+        const wantsNew = decision.booking_intent === "new" || !existingAppt;
         try {
-          if (existingAppt?.cal_uid) {
+          if (existingAppt?.cal_uid && !wantsNew) {
             // reschedule the real Cal.com booking
             await rescheduleCalBooking(env, existingAppt.cal_uid, chosen.start_ts);
             await env.DB.prepare("UPDATE appointments SET start_ts = ?, label = ? WHERE id = ?")
@@ -162,18 +172,24 @@ export async function handleTurn(
               await env.DB.prepare("UPDATE slots SET booked = 1, booked_by = ? WHERE id = ?")
                 .bind(session.id, chosen.id).run();
             }
+            // specialist routing for returning patients with a new concern
+            const clinician = decision.specialist || chosen.clinician;
+            const kind = decision.specialist && /dr\.|md|cardio|endo|pulmo/i.test(decision.specialist)
+              ? "clinic_followup" : chosen.kind;
+            const location = kind === "clinic_followup" ? "CareLine Partner Clinic, 200 W 57th St" : chosen.location;
             await env.DB.prepare(
               "INSERT INTO appointments (session_id, slot_id, ref_id, patient_name, start_ts, label, kind, clinician, location, cal_uid) VALUES (?,?,?,?,?,?,?,?,?,?)"
             ).bind(
               session.id, chosen.id, refId, patientName,
-              chosen.start_ts, chosen.label, chosen.kind, chosen.clinician, chosen.location, calUid
+              chosen.start_ts, chosen.label, kind, clinician, location, calUid
             ).run();
             await logEvent(env, session.id, "packet",
-              `Appointment booked: ${chosen.label} with ${chosen.clinician}${calUid ? ` (Cal.com ${calUid})` : " (local calendar)"}`);
+              `Appointment booked: ${chosen.label} with ${clinician}${decision.specialist ? ` [routed: ${session.fields.new_concern ?? "new concern"}]` : ""}${calUid ? ` (Cal.com ${calUid})` : " (local calendar)"}`);
+            appointment = { label: chosen.label, clinician, kind, location };
           }
           session.status = "complete";
           bookedNow = true;
-          appointment = { label: chosen.label, clinician: chosen.clinician, kind: chosen.kind, location: chosen.location };
+          appointment = appointment ?? { label: chosen.label, clinician: chosen.clinician, kind: chosen.kind, location: chosen.location };
         } catch (e) {
           console.error("booking failed:", e);
           await logEvent(env, session.id, "system", `booking error: ${String(e).slice(0, 150)}`);

@@ -181,9 +181,9 @@ app.post("/voice", async (c) => {
     : from.startsWith("+")
       ? from
       : from || "unknown";
-  return voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, caller);
+  return await voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, caller);
 });
-app.get("/voice", (c) => voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, "unknown"));
+app.get("/voice", async (c) => voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, "unknown"));
 app.post("/gather-turn", async (c) => gatherTurn(c.env, await c.req.formData()));
 
 // Access token for browser (WebRTC) calls from the dashboard

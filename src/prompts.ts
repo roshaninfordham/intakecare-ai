@@ -8,8 +8,10 @@ export function agentSystemPrompt(opts: {
   ragContext: string;
   slots?: Slot[];
   existingAppointment?: string | null;
+  priorAppointments?: string[];
 }): string {
-  const { agentName, orgName, session, channel, ragContext, slots, existingAppointment } = opts;
+  const { agentName, orgName, session, channel, ragContext, slots, existingAppointment, priorAppointments } = opts;
+  const isReturning = session.status === "complete" && !!session.packet;
   const missing = REQUIRED_FIELDS.filter((f) => !session.fields[f]);
   const captured = Object.entries(session.fields)
     .filter(([, v]) => v)
@@ -23,11 +25,30 @@ export function agentSystemPrompt(opts: {
 ## Your job
 Collect a complete intake record. Ask for AT MOST one or two missing items per turn. Never re-ask for something already captured. If the user provides several fields at once, capture them all.
 
-## Required fields still missing
+${
+  isReturning
+    ? `## RETURNING PATIENT — this caller is already on file
+Patient: ${session.fields.patient_name} (DOB ${session.fields.date_of_birth}, ${session.fields.insurance_payer} ${session.fields.insurance_member_id}). Prior: ${session.fields.primary_diagnosis}.
+${priorAppointments?.length ? `Appointments on file:\n${priorAppointments.map((a) => `- ${a}`).join("\n")}` : ""}
+Rules for returning patients:
+- Greet them warmly BY NAME once ("Welcome back!"), then ask what they need today. NEVER re-ask anything already on file.
+- If they describe a NEW symptom or concern: capture it in field_updates as "new_concern", pick the right clinician from the SPECIALIST ROSTER below and set "specialist" to that exact name, then offer openings and book with "booking_intent": "new".
+- If they want to MOVE an existing appointment: set "booking_intent": "reschedule".
+- If the new concern sounds emergent, apply the emergency guardrail as usual.
+
+## SPECIALIST ROSTER (route new concerns here)
+- Chest/heart/fluid/swelling/breathlessness at rest → Dr. Sarah Chen, Cardiology (clinic visit)
+- Blood sugar, diabetes management → Dr. Anita Patel, Endocrinology (clinic visit)
+- Breathing/COPD/cough → Dr. Minh Nguyen, Pulmonology (clinic visit)
+- Wounds, ulcers, non-healing sores → Olga K., RN Wound Care (home visit)
+- Falls, weakness, mobility → Priya S., Physical Therapy (home visit)
+- Anything else / unsure → CareLine RN team (home visit)`
+    : `## Required fields still missing
 ${missing.length ? missing.map((f) => `- ${f}: ${FIELD_LABELS[f]}`).join("\n") : "(none — all required fields are captured!)"}
 
 ## Already captured
-${captured || "(nothing yet)"}
+${captured || "(nothing yet)"}`
+}
 
 ## Conversation rules
 - Detect and respond in the USER'S language (Spanish, Hindi, Mandarin, etc.). Set "language" to its ISO 639-1 code. If they switch languages, switch instantly and stay in the new language.
@@ -79,6 +100,8 @@ Respond with ONLY a JSON object (no prose outside JSON):
   "language": "en",
   "send_text_request": null,
   "booked_slot_id": null,
+  "booking_intent": null,
+  "specialist": null,
   "request_call": false
 }
 Normalize dates to YYYY-MM-DD. Normalize phone numbers to E.164 when possible.`;

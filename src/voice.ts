@@ -14,7 +14,11 @@ const LANG_TAGS: Record<string, string> = {
 
 const ELEVENLABS_VOICE = "21m00Tcm4TlvDq8ikWAM";
 
-function greetingText(env: Env): string {
+function greetingText(env: Env, patientName?: string | null): string {
+  if (patientName) {
+    const first = patientName.split(/\s+/)[0];
+    return `Hi, welcome back to ${env.ORG_NAME}! This is ${env.AGENT_NAME}. I have ${first}'s file right here — what can I help with today?`;
+  }
   return `Hi, you've reached ${env.ORG_NAME}. This is ${env.AGENT_NAME}. I can get care started for you or a loved one in a couple of minutes — who am I helping today?`;
 }
 
@@ -23,14 +27,20 @@ function greetingText(env: Env): string {
  * Worker. Deepgram nova-3 "multi" auto-detects the caller's language; each
  * reply is tagged with its language so ElevenLabs speaks it natively.
  */
-export function voiceTwiml(env: Env, host: string, mode: string | null, caller: string): Response {
+export async function voiceTwiml(env: Env, host: string, mode: string | null, caller: string): Promise<Response> {
   if (mode === "gather") return gatherTwiml(env, true);
+  // caller recognition: returning patients get greeted by name
+  let patientName: string | null = null;
+  if (caller.startsWith("+")) {
+    const row = await env.DB.prepare("SELECT fields FROM sessions WHERE id = ?").bind(caller).first();
+    if (row) patientName = (JSON.parse((row as any).fields || "{}").patient_name as string) ?? null;
+  }
   const wsUrl = `wss://${host}/relay?caller=${encodeURIComponent(caller)}`;
   const langs = Object.values(LANG_TAGS)
     .map((code) => `<Language code="${code}" ttsProvider="ElevenLabs" voice="${ELEVENLABS_VOICE}"/>`)
     .join("");
   return twimlRaw(
-    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greetingText(env))}" ttsProvider="ElevenLabs" voice="${ELEVENLABS_VOICE}" transcriptionProvider="Deepgram" speechModel="nova-3-general" transcriptionLanguage="multi" interruptible="any" reportInputDuringAgentSpeech="none">${langs}</ConversationRelay></Connect></Response>`
+    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greetingText(env, patientName))}" ttsProvider="ElevenLabs" voice="${ELEVENLABS_VOICE}" transcriptionProvider="Deepgram" speechModel="nova-3-general" transcriptionLanguage="multi" interruptible="any" reportInputDuringAgentSpeech="none">${langs}</ConversationRelay></Connect></Response>`
   );
 }
 
@@ -129,7 +139,7 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
         session.awaiting_doc = 1; // any doc sent over WhatsApp during the call gets acknowledged on the call
         await saveSession(env, session);
         // record the spoken greeting so the agent never re-introduces itself
-        await addMessage(env, callerPhone, "agent", "voice", "text", greetingText(env));
+        await addMessage(env, callerPhone, "agent", "voice", "text", greetingText(env, session.fields.patient_name));
         await logEvent(env, callerPhone, "system", `Voice call connected (${msg.callSid ?? "?"})`);
         const row = await env.DB.prepare(
           "SELECT COALESCE(MAX(id),0) AS m FROM events WHERE session_id = ?"
