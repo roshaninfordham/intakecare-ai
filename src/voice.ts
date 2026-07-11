@@ -12,7 +12,7 @@ export function voiceTwiml(env: Env, host: string, mode: string | null, caller: 
   const greeting = `Hi! You've reached ${env.ORG_NAME}. I'm ${env.AGENT_NAME}, the intake assistant. I can get care started for you or a loved one in about two minutes. Who do we have the pleasure of helping today?`;
   const wsUrl = `wss://${host}/relay?caller=${encodeURIComponent(caller)}`;
   return twimlRaw(
-    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greeting)}" ttsProvider="ElevenLabs" voice="21m00Tcm4TlvDq8ikWAM" transcriptionProvider="Deepgram" speechModel="nova-3-general" interruptible="speech" /></Connect></Response>`
+    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greeting)}" ttsProvider="ElevenLabs" voice="21m00Tcm4TlvDq8ikWAM" transcriptionProvider="Deepgram" speechModel="nova-3-general" transcriptionLanguage="multi" interruptible="speech" /></Connect></Response>`
   );
 }
 
