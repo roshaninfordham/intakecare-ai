@@ -7,6 +7,7 @@ import { extractFromImage, extractFromPdf, transcribeAudio } from "./llm";
 import { embed } from "./rag";
 import { KNOWLEDGE_DOCS } from "./knowledge";
 import { gatherTurn, handleRelayUpgrade, voiceTwiml } from "./voice";
+import { voiceAccessToken } from "./token";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -102,9 +103,26 @@ function mediaNote(body: string, summary: string, extracted: Record<string, stri
 // ---------------------------------------------------------------------------
 // Voice
 // ---------------------------------------------------------------------------
-app.post("/voice", (c) => voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null));
-app.get("/voice", (c) => voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null));
+app.post("/voice", async (c) => {
+  const form = await c.req.formData().catch(() => new FormData());
+  // browser calls pass ?phone= via connect params; PSTN calls use From
+  const phoneParam = (form.get("phone") as string) ?? "";
+  const from = (form.get("From") as string) ?? "";
+  const caller = phoneParam.startsWith("+")
+    ? phoneParam
+    : from.startsWith("+")
+      ? from
+      : from || "unknown";
+  return voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, caller);
+});
+app.get("/voice", (c) => voiceTwiml(c.env, new URL(c.req.url).host, c.req.query("mode") ?? null, "unknown"));
 app.post("/gather-turn", async (c) => gatherTurn(c.env, await c.req.formData()));
+
+// Access token for browser (WebRTC) calls from the dashboard
+app.get("/api/voice-token", async (c) => {
+  const token = await voiceAccessToken(c.env, "dashboard-" + Math.floor(Math.random() * 10000));
+  return c.json({ token });
+});
 
 // ---------------------------------------------------------------------------
 // Dashboard API

@@ -7,11 +7,12 @@ import { escapeXml, sendMessage, twimlRaw } from "./twilio";
  * TwiML for inbound calls — opens a ConversationRelay WebSocket back to this
  * Worker. Twilio handles STT (Deepgram) + TTS (ElevenLabs); we handle the brain.
  */
-export function voiceTwiml(env: Env, host: string, mode: string | null): Response {
+export function voiceTwiml(env: Env, host: string, mode: string | null, caller: string): Response {
   if (mode === "gather") return gatherTwiml(env, true);
   const greeting = `Hi! You've reached ${env.ORG_NAME}. I'm ${env.AGENT_NAME}, the intake assistant. I can get care started for you or a loved one in about two minutes. Who do we have the pleasure of helping today?`;
+  const wsUrl = `wss://${host}/relay?caller=${encodeURIComponent(caller)}`;
   return twimlRaw(
-    `<Response><Connect><ConversationRelay url="wss://${host}/relay" welcomeGreeting="${escapeXml(greeting)}" ttsProvider="ElevenLabs" voice="21m00Tcm4TlvDq8ikWAM" transcriptionProvider="Deepgram" speechModel="nova-3-general" interruptible="speech" /></Connect></Response>`
+    `<Response><Connect><ConversationRelay url="${escapeXml(wsUrl)}" welcomeGreeting="${escapeXml(greeting)}" ttsProvider="ElevenLabs" voice="21m00Tcm4TlvDq8ikWAM" transcriptionProvider="Deepgram" speechModel="nova-3-general" interruptible="speech" /></Connect></Response>`
   );
 }
 
@@ -61,7 +62,7 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
   const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
   server.accept();
 
-  let callerPhone = "unknown";
+  let callerPhone = new URL(request.url).searchParams.get("caller") || "unknown";
   let lastEventId = 0;
   let docPollTimer: ReturnType<typeof setInterval> | null = null;
   let processing = false;
@@ -80,7 +81,11 @@ export function handleRelayUpgrade(env: Env, request: Request): Response {
       }
 
       if (msg.type === "setup") {
-        callerPhone = msg.from ?? "unknown";
+        // prefer a real phone number: query param (browser calls pass it) beats client: identities
+        if ((callerPhone === "unknown" || !callerPhone.startsWith("+")) && msg.from?.startsWith("+")) {
+          callerPhone = msg.from;
+        }
+        if (callerPhone === "unknown") callerPhone = msg.from ?? "unknown";
         const session = await getOrCreateSession(env, callerPhone, "voice");
         session.last_channel = "voice";
         await logEvent(env, callerPhone, "system", `Voice call connected (${msg.callSid ?? "?"})`);

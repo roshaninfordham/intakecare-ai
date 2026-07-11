@@ -54,6 +54,14 @@
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(45,212,191,0.5);} 50% { opacity: .55; box-shadow: 0 0 0 5px rgba(45,212,191,0);} }
   @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+  #call-btn {
+    margin-left: 8px; cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 500; font-size: 13px;
+    color: #06251F; background: var(--teal); border: none; border-radius: 8px;
+    padding: 8px 16px; transition: all 0.2s;
+  }
+  #call-btn:hover { filter: brightness(1.1); }
+  #call-btn.in-call { background: var(--coral); color: #fff; }
   .stats { margin-left: auto; display: flex; gap: 28px; }
   .stat { text-align: right; }
   .stat .v { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -149,6 +157,7 @@
 <header>
   <div class="logo">CareLine<span>AI</span></div>
   <div class="live-pill"><span class="live-dot"></span> Live Intake Monitor</div>
+  <button id="call-btn" onclick="toggleCall()">📞 Call Cara</button>
   <div class="stats">
     <div class="stat"><div class="v" id="stat-active">0</div><div class="l">Active</div></div>
     <div class="stat"><div class="v" id="stat-complete">0</div><div class="l">Completed</div></div>
@@ -287,6 +296,39 @@ setInterval(() => {
 
 poll();
 setInterval(poll, 2000);
+
+// ---- Browser voice call (Twilio Voice JS SDK → TwiML App → ConversationRelay) ----
+let device = null, activeCall = null;
+async function toggleCall(){
+  const btn = document.getElementById("call-btn");
+  if (activeCall) { activeCall.disconnect(); return; }
+  let phone = localStorage.getItem("careline_phone") || "";
+  phone = prompt("Your phone number in E.164 (links this call to your WhatsApp session):", phone || "+1") || "";
+  if (!/^\+\d{8,15}$/.test(phone.trim())) { alert("Please enter a number like +19175550134"); return; }
+  phone = phone.trim();
+  localStorage.setItem("careline_phone", phone);
+  btn.textContent = "connecting…";
+  try {
+    if (!window.Twilio) await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://sdk.twilio.com/js/voice/releases/2.12.1/twilio.min.js";
+      s.onload = res; s.onerror = rej; document.head.appendChild(s);
+    });
+    const { token } = await (await fetch("/api/voice-token")).json();
+    device = new Twilio.Device(token, { logLevel: "error" });
+    await device.register();
+    activeCall = await device.connect({ params: { phone } });
+    btn.textContent = "🔴 End call"; btn.classList.add("in-call");
+    selected = phone; prevFields = {};
+    const done = () => { activeCall = null; btn.textContent = "📞 Call Cara"; btn.classList.remove("in-call"); };
+    activeCall.on("disconnect", done);
+    activeCall.on("cancel", done);
+    activeCall.on("error", (e) => { console.error(e); done(); });
+  } catch(e) {
+    console.error(e); alert("Call failed: " + (e.message || e));
+    btn.textContent = "📞 Call Cara"; btn.classList.remove("in-call");
+  }
+}
 </script>
 </body>
 </html>
