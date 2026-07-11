@@ -145,20 +145,23 @@ export async function extractFromImage(
   }
 }
 
-/** Read a PDF (referral packet) via OpenRouter (Gemini free, native PDF + text-parser plugin). */
+/** Read a PDF (referral packet): Workers AI toMarkdown extracts text, Groq structures it. */
 export async function extractFromPdf(env: Env, pdf: ArrayBuffer): Promise<MediaExtraction> {
-  const b64 = Buffer.from(pdf).toString("base64");
-  const content = [
-    { type: "text", text: MEDIA_EXTRACT_PROMPT },
-    {
-      type: "file",
-      file: { filename: "referral.pdf", file_data: `data:application/pdf;base64,${b64}` },
-    },
-  ];
-  const text = await openrouterChat(env, [{ role: "user", content }], {
-    model: OPENROUTER_PDF_MODEL,
-    plugins: [{ id: "file-parser", pdf: { engine: "pdf-text" } }],
-    maxTokens: 1500,
-  });
+  const results = await env.AI.toMarkdown([
+    { name: "referral.pdf", blob: new Blob([pdf], { type: "application/pdf" }) },
+  ]);
+  const first = (Array.isArray(results) ? results[0] : results) as any;
+  const markdown: string = first?.format !== "error" ? (first?.data ?? "") : "";
+  if (!markdown.trim()) {
+    return {
+      summary: "a PDF I couldn't read (it may be a scanned image — a photo of the page works better)",
+      extracted: {},
+    };
+  }
+  const [text] = await chatWithFallback(
+    env,
+    [{ role: "user", content: `${MEDIA_EXTRACT_PROMPT}\n\nDocument text:\n${markdown.slice(0, 8000)}` }],
+    { json: true }
+  );
   return parseJsonLoose<MediaExtraction>(text);
 }

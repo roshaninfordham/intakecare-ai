@@ -28,6 +28,15 @@ export async function fetchTwilioMedia(
   env: Env,
   url: string
 ): Promise<{ data: ArrayBuffer; contentType: string }> {
+  // self-hosted demo assets: a Worker can't fetch its own hostname, use the assets binding
+  if (new URL(url).hostname.endsWith("workers.dev")) {
+    const res = await env.ASSETS.fetch(url);
+    if (!res.ok) throw new Error(`asset fetch ${res.status}`);
+    return {
+      data: await res.arrayBuffer(),
+      contentType: res.headers.get("content-type") ?? "application/octet-stream",
+    };
+  }
   let res = await fetch(url, {
     headers: { Authorization: authHeader(env) },
     redirect: "manual",
