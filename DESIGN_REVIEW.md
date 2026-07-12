@@ -209,21 +209,49 @@ Hallucination is attacked at **four independent layers**, so no single failure p
 
 ### B · The math & algorithms (the interesting bits)
 
-**Semantic retrieval — cosine similarity.** The knowledge corpus is embedded with `bge-base-en-v1.5` (768-dimensional vectors). For a query vector **q** and chunk vector **d**, relevance is the cosine of the angle between them:
+#### 1. Semantic retrieval — cosine similarity
 
-$$\text{sim}(\mathbf{q},\mathbf{d}) = \frac{\mathbf{q}\cdot\mathbf{d}}{\lVert \mathbf{q}\rVert\,\lVert \mathbf{d}\rVert}$$
+Every policy chunk and every caller question is turned into a list of 768 numbers (a "vector") by the `bge-base-en-v1.5` embedding model. Two pieces of text with similar *meaning* get similar vectors. We measure similarity with the **cosine of the angle** between the two vectors:
 
-Top-k chunks by this score are injected as grounding; a keyword fallback covers the case where embeddings fail.
+```
+                       q · d
+cosine(q, d)  =  ─────────────────
+                    ‖q‖ · ‖d‖
 
-**Collision-free, time-safe slot IDs.** A scheduling bug once booked a *different* time than the one spoken, because slot identifiers were positional. Fix: derive the ID from the slot's start time itself,
+  q · d   = dot product  (multiply the vectors element-by-element, then sum)
+  ‖q‖     = length/magnitude of the vector = sqrt(sum of its squares)
+```
 
-$$\text{id} = \left\lfloor \frac{\text{epoch\_ms}}{60000} \right\rfloor \bmod 10^{6}$$
+- **In words:** it scores how much two texts "point the same way" in meaning — `1.0` = identical meaning, `0` = unrelated — *independent of length*, so a 5-word question can still match a long paragraph.
+- **Why this and not keyword matching:** a caller asking "do you cover my area?" should match a chunk titled "Service area & coverage" even with zero shared words. Cosine on embeddings captures meaning; keyword search can't. It's also cheap — one dot product and two magnitudes per chunk. We take the top-k highest-scoring chunks as grounding (with a keyword search as a fallback if embeddings fail).
 
-so the same time always maps to the same stable ID across turns — the agent can never book a time it didn't offer.
+#### 2. Collision-free, time-safe slot IDs
 
-**Resilience as a validated chain.** The model fallback isn't just "try next on error" — each candidate's output must **parse as valid JSON** to be accepted, otherwise it's discarded like a failed request. Correctness and availability are enforced by the same loop.
+A scheduling bug once booked a *different* time than the one spoken, because slot IDs were **positional** (1st, 2nd, 3rd in the list) — and the list reordered between turns, so "slot 2" pointed at a new time. The fix derives the ID from the slot's own start time:
 
-**Rule-based eligibility.** Insurance acceptance is a deterministic payer-match against an accepted-plan set — instant (~0.2s), auditable, and a stand-in for a real EDI 270/271 (Electronic Data Interchange eligibility) call in production.
+```
+id = floor(start_time_in_milliseconds / 60000) mod 1,000,000
+
+  floor(… / 60000)   → convert milliseconds to a whole-minute stamp
+  mod 1,000,000      → keep it a short, tidy number
+```
+
+- **In words:** the ID *is* the appointment time (rounded to the minute), so the **same time always produces the same ID** across turns.
+- **Why:** it makes the identifier immutable and self-describing — the agent can never book a time it didn't offer, because the ID it acts on is derived from the time itself, not from a fragile list position.
+
+#### 3. Resilience as a validated chain
+
+The model fallback isn't just "try the next model on error." Each candidate's output must also **parse as valid JSON** to be accepted — otherwise it's discarded exactly like a dead endpoint, and we move to the next model.
+
+- **In words:** a model that's *up but talking nonsense* is treated the same as a model that's *down*.
+- **Why:** it enforces correctness and availability in one loop — we never act on a malformed decision, and we never stall on one bad provider.
+
+#### 4. Rule-based eligibility
+
+Insurance acceptance is a deterministic match of the caller's payer against an accepted-plan set — instant (~0.2s), auditable, no model involved.
+
+- **In words:** a simple lookup: "is this plan on our accepted list, and does it need prior authorization?"
+- **Why:** eligibility must be *exact and explainable* — a rule you can point at, and a clean stand-in for a real EDI 270/271 (Electronic Data Interchange) payer check in production.
 
 ### C · Mistakes & learnings (honest)
 
